@@ -1,0 +1,13 @@
+{
+  "name": "arowana-pet",
+  "version": "1.0.0",
+  "description": "桌面金龙鱼宠物 - 体轴行波游动动画",
+  "main": "main.js",
+  "scripts": {
+    "start": "node start.js",
+    "smoke": "node smoke.js"
+  },
+  "devDependencies": {
+    "electron": "^44.7.0"
+  }
+}
