@@ -23,12 +23,28 @@
     [0.92, 0.060], [1.00, 0.038]
   ];
 
-  var C = {
-    back: '#7a4d10', mid: '#d99a2e', belly: '#fdf6da',
-    fin: 'rgba(243,196,96,0.86)', finEdge: 'rgba(168,102,26,0.65)',
-    scale: 'rgba(146,92,22,0.26)', scaleHi: 'rgba(255,244,205,0.30)',
-    eye: '#2b1a08', line: 'rgba(120,72,18,0.55)'
-  };
+  var PALETTES = [
+    {
+      back: '#7a4d10', mid: '#d99a2e', sheenMid: '#f6dc8c', belly: '#fdf6da',
+      fin0: 'rgba(214,150,48,0.88)', fin1: 'rgba(246,214,124,0.80)', fin2: 'rgba(206,140,44,0.78)',
+      fin: 'rgba(243,196,96,0.86)', finEdge: 'rgba(168,102,26,0.65)',
+      scale: 'rgba(146,92,22,0.26)', scaleHi: 'rgba(255,244,205,0.30)',
+      eye: '#2b1a08', eyeRing: '#f6e3b4', blinkCover: '#d99a2e',
+      line: 'rgba(120,72,18,0.55)', gill: 'rgba(120,72,18,0.45)',
+      mouth: 'rgba(90,54,14,0.75)', whisker: 'rgba(150,100,30,0.8)'
+    },
+    {
+      back: '#7a2410', mid: '#d94f2e', sheenMid: '#f6b48c', belly: '#fdf0da',
+      fin0: 'rgba(190,60,30,0.88)', fin1: 'rgba(246,150,110,0.80)', fin2: 'rgba(200,70,35,0.78)',
+      fin: 'rgba(243,120,80,0.86)', finEdge: 'rgba(140,40,20,0.65)',
+      scale: 'rgba(146,40,22,0.28)', scaleHi: 'rgba(255,244,205,0.30)',
+      eye: '#2b1a08', eyeRing: '#f6d8b4', blinkCover: '#d94f2e',
+      line: 'rgba(120,40,18,0.55)', gill: 'rgba(120,40,18,0.45)',
+      mouth: 'rgba(90,30,14,0.75)', whisker: 'rgba(150,60,30,0.8)'
+    }
+  ];
+
+  function pal(st) { return PALETTES[(st && st.palette) | 0] || PALETTES[0]; }
 
   function smooth(u) { return u * u * (3 - 2 * u); }
   function clamp01(v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
@@ -152,6 +168,7 @@
   function draw(ctx, st) {
     var g = build(st);
     var i, p, n, t, hh, s;
+    var P = pal(st);
 
     ctx.save();
     ctx.translate(st.x, st.y);
@@ -161,15 +178,15 @@
     ctx.translate(-0.42 * L, 0);                    // 旋转中心放在质心（s≈0.42）
 
     var finGrad = ctx.createLinearGradient(0, -L * 0.2, 0, L * 0.2);
-    finGrad.addColorStop(0, 'rgba(214,150,48,0.88)');
-    finGrad.addColorStop(0.5, 'rgba(246,214,124,0.80)');
-    finGrad.addColorStop(1, 'rgba(206,140,44,0.78)');
+    finGrad.addColorStop(0, P.fin0);
+    finGrad.addColorStop(0.5, P.fin1);
+    finGrad.addColorStop(1, P.fin2);
 
     // 尾鳍
     ctx.fillStyle = finGrad;
     caudalPath(ctx, g);
     ctx.fill();
-    ctx.strokeStyle = C.finEdge; ctx.lineWidth = 1; ctx.stroke();
+    ctx.strokeStyle = P.finEdge; ctx.lineWidth = 1; ctx.stroke();
 
     // 背鳍 / 臀鳍（金龙鱼两鳍都靠后）
     ctx.fillStyle = finGrad;
@@ -184,10 +201,10 @@
 
     // 鱼体
     var bodyGrad = ctx.createLinearGradient(0, -L * 0.17, 0, L * 0.17);
-    bodyGrad.addColorStop(0, C.back);
-    bodyGrad.addColorStop(0.30, C.mid);
-    bodyGrad.addColorStop(0.62, '#f6dc8c');
-    bodyGrad.addColorStop(1, C.belly);
+    bodyGrad.addColorStop(0, P.back);
+    bodyGrad.addColorStop(0.30, P.mid);
+    bodyGrad.addColorStop(0.62, P.sheenMid);
+    bodyGrad.addColorStop(1, P.belly);
     bodyPath(ctx, g);
     ctx.fillStyle = bodyGrad;
     ctx.fill();
@@ -211,7 +228,7 @@
         ctx.quadraticCurveTo(cx, cy, bx, by);
       }
     }
-    ctx.strokeStyle = C.scale;
+    ctx.strokeStyle = P.scale;
     ctx.lineWidth = L * 0.008;
     ctx.stroke();
 
@@ -229,7 +246,7 @@
 
     // 体轮廓
     bodyPath(ctx, g);
-    ctx.strokeStyle = C.line; ctx.lineWidth = 1.1; ctx.stroke();
+    ctx.strokeStyle = P.line; ctx.lineWidth = 1.1; ctx.stroke();
 
     // 胸鳍：高频小幅扇动，悬停时最明显
     i = Math.round(0.22 * N); p = g.pts[i]; n = g.nor[i]; hh = halfH(0.22);
@@ -238,7 +255,7 @@
     leaf(ctx, p.x + n.x * hh * 0.75, p.y + n.y * hh * 0.75,
          baseAng + flap, L * 0.155, L * 0.040);
     ctx.fillStyle = finGrad; ctx.fill();
-    ctx.strokeStyle = C.finEdge; ctx.lineWidth = 0.8; ctx.stroke();
+    ctx.strokeStyle = P.finEdge; ctx.lineWidth = 0.8; ctx.stroke();
 
     // 鳃盖
     i = Math.round(0.17 * N); p = g.pts[i]; n = g.nor[i]; hh = halfH(0.17);
@@ -247,7 +264,7 @@
     ctx.beginPath();
     ctx.moveTo(gx1, gy1);
     ctx.quadraticCurveTo(p.x - L * 0.035, p.y, gx2, gy2);
-    ctx.strokeStyle = 'rgba(120,72,18,0.45)'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.strokeStyle = P.gill; ctx.lineWidth = 1; ctx.stroke();
 
     // 口裂（上位口，微微上翘）
     var hp = g.pts[0], hn = g.nor[0], hhh = halfH(0) * 0.6;
@@ -255,10 +272,10 @@
     ctx.moveTo(hp.x + L * 0.012, hp.y + hn.y * hhh);
     ctx.quadraticCurveTo(hp.x + L * 0.045, hp.y + hn.y * hhh * 1.5,
                          hp.x + L * 0.085, hp.y + hn.y * hhh * 0.4);
-    ctx.strokeStyle = 'rgba(90,54,14,0.75)'; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.strokeStyle = P.mouth; ctx.lineWidth = 1.2; ctx.stroke();
 
     // 龙须：两根，随身体摆动飘动
-    ctx.strokeStyle = 'rgba(150,100,30,0.8)'; ctx.lineWidth = 1.3;
+    ctx.strokeStyle = P.whisker; ctx.lineWidth = 1.3;
     for (var k = 0; k < 2; k++) {
       var sway = Math.sin(st.phase * 0.9 + k * 1.3) * L * 0.022;
       var sx = hp.x + L * 0.02 + k * L * 0.012;
@@ -275,14 +292,14 @@
     var ex = p.x - n.x * hh * 0.32, ey = p.y - n.y * hh * 0.32;
     var er = L * 0.0175;
     ctx.beginPath(); ctx.arc(ex, ey, er, 0, 6.2832);
-    ctx.fillStyle = '#f6e3b4'; ctx.fill();
-    ctx.strokeStyle = 'rgba(120,72,18,0.6)'; ctx.lineWidth = 0.8; ctx.stroke();
+    ctx.fillStyle = P.eyeRing; ctx.fill();
+    ctx.strokeStyle = P.line; ctx.lineWidth = 0.8; ctx.stroke();
     ctx.beginPath(); ctx.arc(ex, ey, er * 0.52, 0, 6.2832);
-    ctx.fillStyle = C.eye; ctx.fill();
+    ctx.fillStyle = P.eye; ctx.fill();
     if (st.blink > 0) {
       ctx.save();
       ctx.beginPath(); ctx.arc(ex, ey, er, 0, 6.2832); ctx.clip();
-      ctx.fillStyle = '#d99a2e';
+      ctx.fillStyle = P.blinkCover;
       ctx.fillRect(ex - er, ey - er, er * 2, er * 2 * st.blink);
       ctx.restore();
     } else {

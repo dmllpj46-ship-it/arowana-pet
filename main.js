@@ -9,7 +9,7 @@ const POLL_MS = 40;
 
 let win = null;
 let tray = null;
-let box = null;             // 渲染进程报上来的鱼身包围圆（窗口坐标）
+let boxes = [];           // 渲染进程报上来的鱼身包围圆数组（窗口坐标，双鱼）
 let interactive = false;
 let origin = { x: 0, y: 0 };
 
@@ -53,12 +53,15 @@ function createWindow() {
 // 没有任何原生依赖的鼠标 proximity：轮询系统光标坐标即可
 function startProximityPolling() {
   setInterval(() => {
-    if (!win || !box) return;
+    if (!win || boxes.length === 0) return;
     const p = screen.getCursorScreenPoint();
-    const dx = p.x - origin.x - box.x;
-    const dy = p.y - origin.y - box.y;
-    const r = box.r + PROXIMITY_PAD;
-    const near = dx * dx + dy * dy < r * r;
+    const near = boxes.some((box) => {
+      if (!box || !isFinite(box.x) || !isFinite(box.y) || !isFinite(box.r)) return false;
+      const dx = p.x - origin.x - box.x;
+      const dy = p.y - origin.y - box.y;
+      const r = box.r + PROXIMITY_PAD;
+      return dx * dx + dy * dy < r * r;
+    });
     if (near !== interactive) {
       interactive = near;
       win.setIgnoreMouseEvents(!near, { forward: true });
@@ -97,7 +100,11 @@ if (!gotLock) {
     screen.on('display-removed', fitWindow);
   });
 
-  ipcMain.on('fish-box', (_e, b) => { box = b; });
+  ipcMain.on('fish-box', (_e, b) => {
+    if (Array.isArray(b)) boxes = b;
+    else if (b && Array.isArray(b.boxes)) boxes = b.boxes;
+    else if (b && isFinite(b.x)) boxes = [b]; // 兼容旧单鱼协议
+  });
   ipcMain.on('set-tray', (_e, url) => { try { buildTray(url); } catch (err) { /* 图标生成失败不影响主功能 */ } });
   ipcMain.on('quit', () => app.quit());
 
