@@ -8,6 +8,7 @@ const CFG = require('./src/config.js');
 
 // 注册所有宠物（与 main.js 的注册顺序保持一致）
 require('./src/pets/fish.js');
+require('./src/pets/dragon.js');
 require('./src/pets/_common.js');
 require('./src/pets/cat.js');
 require('./src/pets/dog.js');
@@ -231,7 +232,7 @@ if (PetPool.pick(['solo'], 'solo') !== 'solo') { bad++; console.error('PetPool �
 // 空池兜底
 if (PetPool.pick([], 'x') !== 'x') { bad++; console.error('PetPool 空池兜底异常'); }
 
-// 加权选取：不选 exclude、不越界；权重高的命中率应明显更高
+// 加权选取：不选 exclude、不越界；命中率应严格符合 CFG.WEIGHTS 的比例
 const WEIGHTS = CFG.WEIGHTS;
 {
   const wCounts = {};
@@ -241,16 +242,211 @@ const WEIGHTS = CFG.WEIGHTS;
     if (ids.indexOf(p) === -1) { bad++; console.error('pickWeighted 选出池外 id:', p); break; }
     wCounts[p] = (wCounts[p] || 0) + 1;
   }
-  // 排除 fish 后，其余应等概率（权重全为1）。检查无成员为 0（都出现过）
+  // 排除 fish 后每个成员都必须出现过（漏了说明权重表写错 id）
   for (const id of ids) {
     if (id === 'fish') continue;
     if (!wCounts[id]) { bad++; console.error('pickWeighted 漏掉了', id); }
   }
-  // fish 权重5：从不带 exclude 的抽取里，fish 命中率应 ≈ 5/10 = 50%
-  const fc = {}; for (let i = 0; i < 6000; i++) { const p = PetPool.pickWeighted(ids, null, WEIGHTS); fc[p] = (fc[p] || 0) + 1; }
-  const fishRate = (fc.fish || 0) / 6000;
-  console.log('加权命中率: fish=' + (fishRate * 100).toFixed(1) + '% (期望≈50%)');
-  if (fishRate < 0.42 || fishRate > 0.58) { bad++; console.error('fish 加权命中率偏离期望:', (fishRate * 100).toFixed(1) + '%'); }
+
+  // 命中率期望 = 自身权重 / 总权重（按 POOL 实际在池内的成员算，别拿注册表全集）
+  const poolIds = ids.filter((id) => CFG.POOL.indexOf(id) !== -1);
+  const totalW = poolIds.reduce((s, id) => s + (WEIGHTS[id] > 0 ? WEIGHTS[id] : 1), 0);
+  const N = 20000;
+  const fc = {};
+  for (let i = 0; i < N; i++) {
+    const p = PetPool.pickWeighted(poolIds, null, WEIGHTS);
+    fc[p] = (fc[p] || 0) + 1;
+  }
+  for (const id of poolIds) {
+    const w = WEIGHTS[id] > 0 ? WEIGHTS[id] : 1;
+    const exp = w / totalW;
+    const got = (fc[id] || 0) / N;
+    console.log(`加权命中率: ${id}=${(got * 100).toFixed(1)}% (期望≈${(exp * 100).toFixed(1)}%)`);
+    if (Math.abs(got - exp) > 0.02) {
+      bad++; console.error('加权命中率偏离期望:', id, (got * 100).toFixed(1) + '% vs', (exp * 100).toFixed(1) + '%');
+    }
+  }
+  // 金龙鱼与五彩金龙必须同权：两者命中率差异在采样噪声内
+  if (WEIGHTS.fish !== WEIGHTS.dragon) {
+    bad++; console.error('dragon 权重应与 fish 相同，实得', WEIGHTS.fish, '/', WEIGHTS.dragon);
+  }
+  if (Math.abs((fc.fish || 0) - (fc.dragon || 0)) > N * 0.02) {
+    bad++; console.error('fish 与 dragon 同权但命中率差太多');
+  }
+}
+
+// ---- 前向移动验证：鱼/龙的「头」必须朝 heading 前方，「尾」拖在后方 ----
+// smoke 用的 mock canvas 不维护变换矩阵，测不了朝向，所以这里另用一个维护矩阵的迷你 canvas：
+// 记录每个路径点的「局部坐标 + 世界坐标」。判据（不依赖具体画法细节）：
+//   - 局部 x 最小的点是须尖/口裂（龙须是全身唯一伸到吻端 x<0 之外的东西）-> 必须投影到 heading 前方
+//   - 局部 x 最大的点是尾鳍/飘带尖端 -> 必须投影到 heading 后方
+// 两条同时成立 = 头朝前游；任一不成立 = 在倒退。
+{
+  const ID = [1, 0, 0, 1, 0, 0];   // [a,b,c,d,e,f]：x' = a·x + c·y + e, y' = b·x + d·y + f
+  const mmul = (p, q) => [
+    p[0] * q[0] + p[2] * q[1], p[1] * q[0] + p[3] * q[1],
+    p[0] * q[2] + p[2] * q[3], p[1] * q[2] + p[3] * q[3],
+    p[0] * q[4] + p[2] * q[5] + p[4], p[1] * q[4] + p[3] * q[5] + p[5]
+  ];
+  const mapply = (m, x, y) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+  const noop = () => {};
+
+  function makeCapCtx(pts) {
+    const stack = [];
+    let cur = ID.slice();
+    // 只在「已应用变换」时采集：陆地动物在 facingTransform 之前会用屏幕坐标画
+    // groundShadow，那些点是世界坐标，混进来会污染局部 x 的比较。
+    const isId = () => cur === ID || (cur[0] === 1 && cur[1] === 0 && cur[2] === 0 &&
+                                      cur[3] === 1 && cur[4] === 0 && cur[5] === 0);
+    const put = (x, y) => { if (!isId()) pts.push({ lx: x, ly: y, w: mapply(cur, x, y) }); };
+    return {
+      save: () => stack.push(cur.slice()),
+      restore: () => { cur = stack.length ? stack.pop() : ID.slice(); },
+      translate: (tx, ty) => { cur = mmul(cur, [1, 0, 0, 1, tx, ty]); },
+      scale: (sx, sy) => { cur = mmul(cur, [sx, 0, 0, sy, 0, 0]); },
+      rotate: (r) => { cur = mmul(cur, [Math.cos(r), Math.sin(r), -Math.sin(r), Math.cos(r), 0, 0]); },
+      setTransform: (a, b, c, d, e, f) => { cur = [a, b, c, d, e, f]; },
+      moveTo: (x, y) => put(x, y),
+      lineTo: (x, y) => put(x, y),
+      quadraticCurveTo: (a, b, c, d) => put(c, d),
+      arc: (x, y) => put(x, y),
+      ellipse: (x, y) => put(x, y),
+      beginPath: noop, closePath: noop, clip: noop, fill: noop, stroke: noop,
+      fillRect: noop, clearRect: noop,
+      createLinearGradient: () => ({ addColorStop: noop }),
+      createRadialGradient: () => ({ addColorStop: noop }),
+      fillStyle: '', strokeStyle: '', lineWidth: 1, globalAlpha: 1, lineCap: ''
+    };
+  }
+
+  // 鱼类（体轴行波 + 局部「吻端 x=0」）必须头朝前
+  for (const id of ['fish', 'dragon']) {
+    const d2 = Registry.get(id);
+    if (!d2) { bad++; console.error('朝向验证：找不到物种', id); continue; }
+    // 四个朝向：右 / 下 / 左 / 右上，覆盖 cos(heading) 正负与镜像分支
+    for (const h of [0, Math.PI / 2, Math.PI, -Math.PI * 0.75]) {
+      const pts = [];
+      const st2 = Brain.create(W, H, d2.profile);
+      st2.scale = 1; st2.palette = 0;
+      st2.x = W * 0.5; st2.y = H * 0.5;
+      st2.heading = h; st2.phase = 1.1; st2.curv = 0;
+      st2.ampScale = 0.95; st2.finPhase = 0.4; st2.blink = 0;
+      d2.draw(makeCapCtx(pts), st2);
+
+      // 下限放低：小鸟（L=110）一帧只有 ~19 个路径点，但判断首尾极值不需要很多点
+      if (pts.length < 12) {
+        bad++; console.error(id, '朝向验证：采集到的点太少', pts.length); continue;
+      }
+      let head = pts[0], tail = pts[0];
+      for (const p of pts) { if (p.lx < head.lx) head = p; if (p.lx > tail.lx) tail = p; }
+      const ux = Math.cos(h), uy = Math.sin(h);
+      const hp = (head.w[0] - st2.x) * ux + (head.w[1] - st2.y) * uy;
+      const tp = (tail.w[0] - st2.x) * ux + (tail.w[1] - st2.y) * uy;
+      const okFwd = hp > 0 && tp < 0;
+      console.log(`  [${id}] heading=${h.toFixed(2)} 头投影=${hp.toFixed(1)}px 尾投影=${tp.toFixed(1)}px ${okFwd ? '前向 OK' : '倒退!!'}`);
+      if (!okFwd) {
+        bad++; console.error(id, '朝向错误（在倒退）：heading=' + h.toFixed(2),
+          '头投影', hp.toFixed(1), '尾投影', tp.toFixed(1));
+      }
+    }
+  }
+
+  // 陆地/飞行动物走的是 _common.js 的 facingTransform 约定：「+x 为前进方向」，
+  // 与鱼类相反（鱼类是「吻端 x=0」），所以头是局部 x 最大、尾是局部 x 最小。
+  for (const id of ['cat', 'dog', 'turtle', 'frog', 'bird']) {
+    const d2 = Registry.get(id);
+    if (!d2) { bad++; console.error('朝向验证：找不到物种', id); continue; }
+    for (const h of [0, Math.PI / 2, Math.PI, -Math.PI * 0.75]) {
+      const pts = [];
+      const st2 = Brain.create(W, H, d2.profile);
+      st2.scale = 1; st2.palette = 0;
+      st2.x = W * 0.5; st2.y = H * 0.5;
+      st2.heading = h; st2.phase = 1.1; st2.curv = 0;
+      st2.ampScale = 0.95; st2.finPhase = 0.4; st2.blink = 0;
+      if (d2.profile.band) st2.y = H * (d2.profile.band[0] + d2.profile.band[1]) / 2;
+      d2.draw(makeCapCtx(pts), st2);
+
+      // 下限放低：小鸟（L=110）一帧只有 ~19 个路径点，但判断首尾极值不需要很多点
+      if (pts.length < 12) {
+        bad++; console.error(id, '朝向验证：采集到的点太少', pts.length); continue;
+      }
+      let head = pts[0], tail = pts[0];
+      for (const p of pts) { if (p.lx > head.lx) head = p; if (p.lx < tail.lx) tail = p; }
+      const ux = Math.cos(h), uy = Math.sin(h);
+      const hp = (head.w[0] - st2.x) * ux + (head.w[1] - st2.y) * uy;
+      const tp = (tail.w[0] - st2.x) * ux + (tail.w[1] - st2.y) * uy;
+      const okFwd = hp > 0 && tp < 0;
+      console.log(`  [${id}] heading=${h.toFixed(2)} 头投影=${hp.toFixed(1)}px 尾投影=${tp.toFixed(1)}px ${okFwd ? '前向 OK' : '倒退!!'}`);
+      if (!okFwd) {
+        bad++; console.error(id, '朝向错误（在倒退）：heading=' + h.toFixed(2),
+          '头投影', hp.toFixed(1), '尾投影', tp.toFixed(1));
+      }
+    }
+  }
+}
+
+// ---- 指定宠物参数：PET_ID / PET_PIN / --pet= / --pin ----
+// config.js 在 require 时就固化读 argv/env，所以用子进程隔离各种入参组合。
+{
+  const { execFileSync } = require('node:child_process');
+  const IDS = ['fish', 'dragon', 'cat', 'dog', 'turtle', 'frog', 'bird'];
+  const POOL = IDS;
+
+  // 在干净进程里读 config，返回 PET_ID / PET_PIN
+  function cfgOf(args, env) {
+    const code = 'var c=require(' + JSON.stringify(require.resolve('./src/config.js')) + ');'
+      + 'process.stdout.write(JSON.stringify({id:c.PET_ID,pin:c.PET_PIN}));';
+    const out = execFileSync(process.execPath, ['-e', code, '--'].concat(args), {
+      cwd: __dirname, env: Object.assign({}, process.env, env), encoding: 'utf8'
+    });
+    return JSON.parse(out);
+  }
+  const chk = (label, got, want) => {
+    const ok = got.id === want.id && got.pin === want.pin;
+    console.log(`  [参数] ${label} -> PET_ID=${JSON.stringify(got.id)} PET_PIN=${got.pin} ${ok ? 'OK' : 'FAIL'}`);
+    if (!ok) {
+      bad++; console.error('  期望', JSON.stringify(want), '实得', JSON.stringify(got));
+    }
+  };
+
+  chk('默认（无参）', cfgOf([]), { id: null, pin: false });
+  chk('PET_ID=dragon', cfgOf([], { PET_ID: 'dragon' }), { id: 'dragon', pin: false });
+  chk('PET_ID 带空白', cfgOf([], { PET_ID: '  dragon  ' }), { id: 'dragon', pin: false });
+  chk('PET_ID 空串 -> 忽略', cfgOf([], { PET_ID: '' }), { id: null, pin: false });
+  chk('PET_ID 纯空白 -> 忽略', cfgOf([], { PET_ID: '   ' }), { id: null, pin: false });
+  chk('--pet=dragon', cfgOf(['--pet=dragon']), { id: 'dragon', pin: false });
+  chk('--pet dragon', cfgOf(['--pet', 'dragon']), { id: 'dragon', pin: false });
+  chk('环境变量优先于命令行', cfgOf(['--pet=cat'], { PET_ID: 'dragon' }), { id: 'dragon', pin: false });
+  chk('PET_PIN=1', cfgOf([], { PET_PIN: '1' }), { id: null, pin: true });
+  chk('PET_PIN=true', cfgOf([], { PET_PIN: 'true' }), { id: null, pin: true });
+  chk('PET_PIN=0 -> 不锁', cfgOf([], { PET_PIN: '0' }), { id: null, pin: false });
+  chk('--pin', cfgOf(['--pin']), { id: null, pin: true });
+  chk('PET_ID+PET_PIN', cfgOf([], { PET_ID: 'dragon', PET_PIN: '1' }), { id: 'dragon', pin: true });
+  // 指定 + 轮询同时给：两者互不干扰（锁的是"不再轮换"，不是"改变间隔"）
+  chk('PET_ID + PET_ROTATE_MS', cfgOf([], { PET_ID: 'fish', PET_ROTATE_MS: '10000' }),
+    { id: 'fish', pin: false });
+
+  // resolveForced 校验：拼错/池外必须拒绝并给出解释，绝不静默换一只
+  const rf = PetPool.resolveForced;
+  if (rf(POOL, 'dragon', IDS).id !== 'dragon') { bad++; console.error('resolveForced 拒绝了合法 id'); }
+  if (rf(POOL, null, IDS).id !== null) { bad++; console.error('resolveForced 对空值应返回 null'); }
+  if (rf(POOL, '   ', IDS).id !== null) { bad++; console.error('resolveForced 对纯空白应返回 null'); }
+  {
+    const r = rf(POOL, 'drago', IDS);   // 拼错
+    if (r.id !== null || !r.reason) { bad++; console.error('拼错 id 应被拒绝并给 reason'); }
+    else console.log('  拼错 drago -> 拒绝：' + r.reason);
+  }
+  {
+    // 注册了但不在 POOL：模拟 POOL 少了 cat
+    const pool2 = POOL.filter((x) => x !== 'cat');
+    const r = rf(pool2, 'cat', IDS);
+    if (r.id !== null || !r.reason) { bad++; console.error('池外 id 应被拒绝并给 reason'); }
+    else console.log('  池外 cat -> 拒绝：' + r.reason);
+  }
+  // 合法 id 不该带 reason
+  if (rf(POOL, 'bird', IDS).reason) { bad++; console.error('合法 id 不该附带 reason'); }
+  // allIds 省略时退化为用 pool 判断
+  if (rf(POOL, 'bird').id !== 'bird') { bad++; console.error('resolveForced 省略 allIds 时应退化正常'); }
 }
 
 console.log('注册物种:', ids.join(', '));

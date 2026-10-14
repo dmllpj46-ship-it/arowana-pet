@@ -11,12 +11,14 @@
   function create() { return { bubbles: [], motes: [], bt: rnd(0.5, 2.5), mt: 0 }; }
 
   function mouthPt(st, L) {
+    // 口部在身体中心沿 heading 的「前方」：局部坐标吻端在 x=0、质心在 0.42L，
+    // 所以质心到吻端是 +0.42L 方向（与 heading 同向）。
     var d = 0.42 * L * st.scale;
     var px = -Math.sin(st.heading), py = Math.cos(st.heading); // 腹部法向
     var off = 0.035 * L * st.scale;
     return {
-      x: st.x - Math.cos(st.heading) * d + px * off,
-      y: st.y - Math.sin(st.heading) * d + py * off
+      x: st.x + Math.cos(st.heading) * d + px * off,
+      y: st.y + Math.sin(st.heading) * d + py * off
     };
   }
 
@@ -46,9 +48,10 @@
     }
 
     bs.mt -= dt;
+    // 尾流从尾部拖出：质心沿 heading 的反方向 0.55L 处（尾柄在后方）
     if (bs.mt <= 0 && st.speed > 90) {
-      var tx = st.x + Math.cos(st.heading) * 0.55 * L * st.scale;
-      var ty = st.y + Math.sin(st.heading) * 0.55 * L * st.scale;
+      var tx = st.x - Math.cos(st.heading) * 0.55 * L * st.scale;
+      var ty = st.y - Math.sin(st.heading) * 0.55 * L * st.scale;
       bs.motes.push({
         x: tx + rnd(-8, 8), y: ty + rnd(-8, 8),
         vx: -Math.cos(st.heading) * rnd(10, 32) + rnd(-8, 8),

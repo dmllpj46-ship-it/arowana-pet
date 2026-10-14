@@ -17,6 +17,7 @@ const fs = require('node:fs');
 
 const PetRegistry = require('./src/registry.js');
 require('./src/pets/fish.js');           // 注册 'fish'
+require('./src/pets/dragon.js');         // 注册 'dragon' 五彩金龙（权重同 fish）
 require('./src/pets/_common.js');        // 陆地/飞行宠物共享工具
 require('./src/pets/cat.js');            // 注册 'cat'
 require('./src/pets/dog.js');            // 注册 'dog'
@@ -46,6 +47,19 @@ let stateFile = '';
 function refreshPool() {
   poolIds = PetRegistry.ids().filter((id) => CFG.POOL.indexOf(id) !== -1);
   if (poolIds.length === 0) poolIds = PetRegistry.ids(); // 配置为空则全用
+}
+
+// ---- 指定宠物（PET_ID / --pet=）----
+// 校验放在 petpool.resolveForced：必须是「已注册 且 在 POOL 内」的 id。
+// 写错就退回加权随机并明确告知，不猜用户想要哪只。
+function resolveForcedPet() {
+  var r = PetPool.resolveForced(poolIds, CFG.PET_ID, PetRegistry.ids());
+  if (r.id) return r.id;
+  if (r.reason) {
+    // 用 console.warn 而不是 throw：宠物是桌搭，参数写错不该让整个应用起不来
+    console.warn('[pet] ' + r.reason + ' —— 已退回随机选取');
+  }
+  return null;
 }
 
 function petName(id) {
@@ -98,15 +112,29 @@ function initPool() {
   refreshPool();
   var s = loadState();
   var elapsed = s ? Date.now() - s.since : Infinity;
-  if (s && poolIds.indexOf(s.current) !== -1 && elapsed < CFG.ROTATE_MS) {
+  // PET_ID 优先级最高：用户明确指定了就无视 pet-state.json（那个文件只服务于随机轮换）
+  var forced = resolveForcedPet();
+  var delayMs = CFG.ROTATE_MS;
+
+  if (forced) {
+    currentId = forced;
+    saveState();
+    console.log('[pet] 已按指定启动：' + petName(forced) + (CFG.PET_PIN ? '（已锁定）' : ''));
+  } else if (s && poolIds.indexOf(s.current) !== -1 && elapsed < CFG.ROTATE_MS) {
     // 沿用当前宠物，只排剩余时间
     currentId = s.current;
-    scheduleRotation(CFG.ROTATE_MS - elapsed);
+    delayMs = CFG.ROTATE_MS - elapsed;
   } else {
     // 过期/首次：加权随机选一只（排除刚显示过的，避免连续一样）
     currentId = PetPool.pickWeighted(poolIds, s ? s.current : null, CFG.WEIGHTS);
     saveState();
-    scheduleRotation(CFG.ROTATE_MS);
+  }
+
+  // PET_PIN：完全不排轮换定时器，这只就是最终的宠物
+  if (CFG.PET_PIN) {
+    console.log('[pet] 已锁定 ' + petName(currentId) + '，不再自动轮换');
+  } else {
+    scheduleRotation(delayMs);
   }
 }
 
@@ -212,11 +240,17 @@ function startProximityPolling() {
 // ---- 托盘 ----
 function refreshTray() {
   if (!tray) return;
-  tray.setToolTip('桌面宠物 - ' + petName(currentId));
+  var label = petName(currentId);
+  tray.setToolTip('桌面宠物 - ' + label + (CFG.PET_PIN ? '（已锁定）' : ''));
+  // PET_PIN 时把「换一只」置灰：留着它点得动，锁就是假的
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: '当前宠物：' + petName(currentId), enabled: false },
+    { label: '当前宠物：' + label, enabled: false },
     { type: 'separator' },
-    { label: '换一只', click: () => { rotateTo(pickNext()); scheduleRotation(CFG.ROTATE_MS); } },
+    {
+      label: '换一只',
+      enabled: !CFG.PET_PIN,
+      click: () => { rotateTo(pickNext()); scheduleRotation(CFG.ROTATE_MS); }
+    },
     { type: 'separator' },
     { label: '退出', click: () => app.quit() }
   ]));

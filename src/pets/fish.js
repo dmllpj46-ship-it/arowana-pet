@@ -174,7 +174,10 @@
     ctx.translate(st.x, st.y);
     ctx.scale(st.scale, st.scale);
     ctx.rotate(st.heading);
-    if (Math.cos(st.heading) < 0) ctx.scale(1, -1); // 朝左游时镜像，避免翻肚
+    if (Math.cos(st.heading) < 0) ctx.scale(1, -1); // 朝左游时上下镜像，避免翻肚
+    // 沿体轴镜像：局部坐标是「吻端 x=0 -> 尾柄 x=L」，镜像后吻端才指向 heading（前进方向）。
+    // 只翻 x，法线（背/腹）不受影响，所以行波方向、curv 转弯、背鳍位置都不变。
+    ctx.scale(-1, 1);
     ctx.translate(-0.42 * L, 0);                    // 旋转中心放在质心（s≈0.42）
 
     var finGrad = ctx.createLinearGradient(0, -L * 0.2, 0, L * 0.2);

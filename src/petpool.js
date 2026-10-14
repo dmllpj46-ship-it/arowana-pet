@@ -41,7 +41,39 @@
     return list[list.length - 1];
   }
 
-  var api = { pick: pick, pickWeighted: pickWeighted };
+  /*
+   * resolveForced(ids, want, allIds)：把用户指定的 PET_ID 收敛成一个可用的 id。
+   *
+   * 返回 { id: 'fish' }            —— 可用
+   *       { id: null, reason: '..' } —— 不可用，reason 是给人看的解释
+   *
+   * 规则（故意不做「猜一个相近的」这种容错）：
+   *   - want 为空/纯空白 -> id:null（调用方走加权随机）
+   *   - 拼错 / 没注册    -> 拒绝：宁可退回随机也别静默显示另一只，
+   *                         否则你以为在看龙，实际是条鱼，还得回头查为什么
+   *   - 注册了但不在 POOL -> 同样拒绝：POOL 是「参与轮换的白名单」，
+   *                         放一只池外宠物进来会让「换一只」的逻辑不一致
+   */
+  function resolveForced(ids, want, allIds) {
+    var w = (typeof want === 'string') ? want.trim() : '';
+    if (!w) return { id: null };
+
+    var pool = ids || [];
+    var known = allIds || pool;
+
+    if (known.indexOf(w) === -1) {
+      return { id: null, reason: '宠物 "' + w + '" 不存在。可选：' + known.join(', ') };
+    }
+    if (pool.indexOf(w) === -1) {
+      return {
+        id: null,
+        reason: '宠物 "' + w + '" 已注册但不在 POOL 里，不会被选中。POOL：' + pool.join(', ')
+      };
+    }
+    return { id: w };
+  }
+
+  var api = { pick: pick, pickWeighted: pickWeighted, resolveForced: resolveForced };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.PetPool = api;
