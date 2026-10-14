@@ -135,7 +135,7 @@
       headingMode: 'horizontal',
       band: [0.72, 0.96],
       blink: [2, 6],
-      particles: 'none'
+      particles: 'bubbles'
     },
     draw: draw,
     drawIcon: null,

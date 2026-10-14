@@ -116,7 +116,7 @@
       headingMode: 'free',
       band: null,
       blink: [3, 8],
-      particles: 'motes'
+      particles: 'bubbles'
     },
     draw: draw,
     drawIcon: null,
