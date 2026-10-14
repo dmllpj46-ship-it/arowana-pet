@@ -29,9 +29,13 @@
 
     C.facingTransform(ctx, st);
 
-    // 身体轻微上下起伏（走/跑时）
-    var bounce = moving ? Math.sin(gait * 2) * L * 0.012 : Math.sin(st.phase * 0.8) * L * 0.004;
+    // 待机呼吸：站立时身体随慢周期轻微起伏；行走时是步态弹跳
+    var breathe = moving ? 0 : Math.sin(st.phase * 0.8) * L * 0.010;
+    var bounce = moving ? Math.sin(gait * 2) * L * 0.012 : breathe;
     ctx.translate(0, bounce);
+
+    // 耳朵偶尔抖动：用 finPhase 造一个稀疏的抽动
+    var earTwitch = Math.max(0, Math.sin(st.finPhase * 1.7) - 0.86) * 3.2;
 
     // —— 尾巴（S 形，随相位摇摆）——
     var tailSway = Math.sin(st.phase * 0.9) * L * 0.06;
@@ -85,12 +89,12 @@
     ctx.rotate(moving ? 0 : -0.05);
 
     // 耳朵（远侧深色）
-    C.ellipse(ctx, -L * 0.13, -L * 0.30, L * 0.10, L * 0.13, -0.25);
+    C.ellipse(ctx, -L * 0.13, -L * 0.30 - earTwitch * 0.3, L * 0.10, L * 0.13, -0.25);
     ctx.fillStyle = P.furDark; ctx.fill();
     // 耳朵（近侧）
-    C.ellipse(ctx, L * 0.10, -L * 0.30, L * 0.11, L * 0.14, 0.2);
+    C.ellipse(ctx, L * 0.10, -L * 0.30 - earTwitch * 0.4, L * 0.11, L * 0.14, 0.2 + earTwitch * 0.05);
     ctx.fillStyle = P.fur; ctx.fill();
-    C.ellipse(ctx, L * 0.11, -L * 0.29, L * 0.055, L * 0.075, 0.2);
+    C.ellipse(ctx, L * 0.11, -L * 0.29 - earTwitch * 0.4, L * 0.055, L * 0.075, 0.2 + earTwitch * 0.05);
     ctx.fillStyle = P.inner; ctx.fill();
 
     // 头
@@ -141,6 +145,7 @@
       particles: 'none'
     },
     draw: draw,
-    drawIcon: null
+    drawIcon: null,
+    PALETTES: PALETTES
   });
 })(typeof window !== 'undefined' ? window : globalThis);

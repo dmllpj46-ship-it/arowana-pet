@@ -28,7 +28,7 @@
 
     C.facingTransform(ctx, st);
 
-    var bounce = moving ? Math.sin(gait * 2) * L * 0.014 : 0;
+    var bounce = moving ? Math.sin(gait * 2) * L * 0.014 : Math.sin(st.phase * 0.8) * L * 0.010;
     ctx.translate(0, bounce);
 
     // —— 尾巴（上翘，快速摇摆）——
@@ -131,6 +131,7 @@
       particles: 'none'
     },
     draw: draw,
-    drawIcon: null
+    drawIcon: null,
+    PALETTES: PALETTES
   });
 })(typeof window !== 'undefined' ? window : globalThis);

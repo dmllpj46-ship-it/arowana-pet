@@ -30,27 +30,31 @@
     C.facingTransform(ctx, st);
 
     // 跳跃弧：hopT 大时身体上抬（y 负=上）
-    var lift = hopping ? -hopT * L * 0.5 : 0;
+    // 跳跃弧：用 sin 曲线让身体"起跳-顶点-落下"更自然，而非线性抬升
+    var arc = hopping ? Math.sin(hopT * Math.PI) : 0;   // 0->1->0
+    var lift = -arc * L * 0.55;
+    // 身体拉伸/压缩：起跳瞬间拉长，顶点恢复，落地压扁
+    var stretch = hopping ? (hopT < 0.3 ? 1 + (0.3 - hopT) * 0.5 : 1 - arc * 0.18) : 1;
     ctx.translate(0, lift);
 
-    // —— 后腿（大腿）——
-    var legSwing = hopping ? hopT * 0.5 : 0;    // 跳跃时后腿向后蹬
-    var thighY = L * (0.16 + crouch * 0.02 - hopT * 0.08);
-    C.ellipse(ctx, -L * 0.16 + legSwing * L * 0.06, thighY, L * 0.18, L * 0.11);
+    // —— 后腿（大腿）：起跳时向后蹬直，空中收起 ——
+    var legSwing = hopping ? hopT * 0.6 : 0;
+    var thighY = L * (0.16 + crouch * 0.03 - hopT * 0.06);
+    C.ellipse(ctx, -L * 0.16 + legSwing * L * 0.10, thighY, L * 0.20 * stretch, L * 0.11);
     ctx.fillStyle = P.body; ctx.fill();
-    // —— 后脚（蹼，跳跃时后伸）——
-    var footX = -L * 0.34 - legSwing * L * 0.10;
-    var footY = thighY + (hopping ? hopT * L * 0.06 : 0);
+    // —— 后脚（蹼，跳跃时大幅后伸）——
+    var footX = -L * 0.34 - legSwing * L * 0.22;
+    var footY = thighY + (hopping ? hopT * L * 0.10 : 0);
     ctx.beginPath();
     ctx.moveTo(footX, footY);
-    ctx.quadraticCurveTo(footX - L * 0.10, footY - L * 0.06, footX - L * 0.16, footY);
-    ctx.quadraticCurveTo(footX - L * 0.14, footY + L * 0.06, footX - L * 0.06, footY + L * 0.04);
+    ctx.quadraticCurveTo(footX - L * 0.12, footY - L * 0.07, footX - L * 0.20, footY);
+    ctx.quadraticCurveTo(footX - L * 0.16, footY + L * 0.07, footX - L * 0.07, footY + L * 0.05);
     ctx.closePath();
     ctx.fillStyle = P.dark; ctx.fill();
 
-    // —— 身体（矮胖）——
-    var bodyH = L * (0.30 + crouch * 0.02 - hopT * 0.04);
-    C.ellipse(ctx, 0, 0, L * 0.34, bodyH * 0.5);
+    // —— 身体（矮胖，跳跃时拉伸）——
+    var bodyH = L * (0.30 + crouch * 0.03 - hopT * 0.04);
+    C.ellipse(ctx, 0, 0, L * 0.34, bodyH * 0.5 * stretch);
     ctx.fillStyle = P.body; ctx.fill();
     // 肚皮
     C.ellipse(ctx, L * 0.02, L * 0.06, L * 0.26, bodyH * 0.32);
@@ -134,6 +138,7 @@
       particles: 'none'
     },
     draw: draw,
-    drawIcon: null
+    drawIcon: null,
+    PALETTES: PALETTES
   });
 })(typeof window !== 'undefined' ? window : globalThis);

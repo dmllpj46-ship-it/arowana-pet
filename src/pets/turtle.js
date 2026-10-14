@@ -27,7 +27,7 @@
 
     C.facingTransform(ctx, st);
 
-    var bounce = moving ? Math.sin(gait * 2) * L * 0.008 : 0;
+    var bounce = moving ? Math.sin(gait * 2) * L * 0.008 : Math.sin(st.phase * 0.6) * L * 0.006;
     ctx.translate(0, bounce);
 
     // —— 后腿（远侧）——
@@ -135,6 +135,7 @@
       particles: 'none'
     },
     draw: draw,
-    drawIcon: null
+    drawIcon: null,
+    PALETTES: PALETTES
   });
 })(typeof window !== 'undefined' ? window : globalThis);

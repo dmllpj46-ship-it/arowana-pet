@@ -26,8 +26,13 @@
     // 翅膀扇动角：finPhase 驱动，-1..1
     var flap = Math.sin(st.finPhase * flapSpeed);
     var wingSpan = st.mode === 'dash' ? 1.15 : 1.0;
+    // 悬停滑翔：翅膀大幅展开、缓慢起伏，而不是快速扇动
+    var gliding = st.mode === 'hover' && speed < 20;
+    var glideLift = gliding ? Math.sin(st.finPhase * 0.8) * 0.35 : 0;
 
     C.facingTransform(ctx, st);
+    // 滑翔时身体轻微抬头上扬
+    if (gliding) ctx.rotate(-0.06);
 
     // —— 尾羽（随飞行方向后展）——
     var tailFan = Math.sin(st.finPhase * 0.5) * 0.1;
@@ -40,13 +45,13 @@
     ctx.closePath();
     ctx.fill();
 
-    // —— 远翅（先画，深色，在后）——
+    // —— 远翅（先画，深色，在后；滑翔时大角度展开）——
     ctx.save();
     ctx.translate(-L * 0.02, -L * 0.04);
-    ctx.rotate(flap * 0.5);
+    ctx.rotate(gliding ? (0.9 + glideLift * 0.3) : flap * 0.5);
     ctx.beginPath();
     ctx.moveTo(0, 0);
-    ctx.quadraticCurveTo(-L * 0.18, -L * 0.16 * wingSpan, -L * 0.30, -L * 0.10 * wingSpan);
+    ctx.quadraticCurveTo(-L * 0.20, -L * 0.18 * wingSpan, -L * 0.34, -L * 0.08 * wingSpan);
     ctx.quadraticCurveTo(-L * 0.16, L * 0.02, 0, 0);
     ctx.closePath();
     ctx.fillStyle = P.wing; ctx.fill();
@@ -75,14 +80,14 @@
     // —— 眼睛 ——
     C.drawEye(ctx, L * 0.30, -L * 0.09, L * 0.045, st.blink, P.eye, '#1a1a1a', P.body);
 
-    // —— 近翅（后画，亮色，在前，扇动主视觉）——
+    // —— 近翅（后画，亮色，在前；滑翔时向上高举）——
     ctx.save();
     ctx.translate(L * 0.02, -L * 0.04);
-    ctx.rotate(flap * 0.7);
+    ctx.rotate(gliding ? (-1.1 + glideLift * 0.4) : flap * 0.7);
     ctx.beginPath();
     ctx.moveTo(0, 0);
-    ctx.quadraticCurveTo(L * 0.10, -L * 0.24 * wingSpan, L * 0.24, -L * 0.30 * wingSpan);
-    ctx.quadraticCurveTo(L * 0.30, -L * 0.06, L * 0.16, L * 0.04);
+    ctx.quadraticCurveTo(L * 0.12, -L * 0.28 * wingSpan, L * 0.28, -L * 0.34 * wingSpan);
+    ctx.quadraticCurveTo(L * 0.32, -L * 0.06, L * 0.16, L * 0.04);
     ctx.closePath();
     ctx.fillStyle = P.body; ctx.fill();
     // 翼缘深色
@@ -114,6 +119,7 @@
       particles: 'motes'
     },
     draw: draw,
-    drawIcon: null
+    drawIcon: null,
+    PALETTES: PALETTES
   });
 })(typeof window !== 'undefined' ? window : globalThis);

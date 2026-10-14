@@ -69,10 +69,13 @@ const W = 1920, H = 1080;
 const dt = 1 / 60;
 
 // 每个物种跑 800 帧：update + particles + draw，校验状态与包围盒
+// 遍历该物种全部配色变体（验证随机配色不会引入 NaN/非法色）
 for (const id of ids) {
   const def = Registry.get(id);
+  const variants = (def.PALETTES && def.PALETTES.length) ? def.PALETTES.length : 1;
+  for (let pv = 0; pv < variants; pv++) {
   const st = Brain.create(W, H, def.profile);
-  st.palette = def.palette || 0;
+  st.palette = pv;
   st.scale = 1;
   if (def.profile.band) {
     st.y = H * (def.profile.band[0] + def.profile.band[1]) / 2;
@@ -113,7 +116,8 @@ for (const id of ids) {
     profile: def.profile
   });
 
-  console.log(`  [${id}] L=${def.L} 气泡=${def.profile.particles !== 'none' ? bs.bubbles.length : '-'} 末位置=(${st.x.toFixed(0)},${st.y.toFixed(0)})`);
+  console.log(`  [${id}] L=${def.L} 变体=${variants} 气泡=${def.profile.particles !== 'none' ? bs.bubbles.length : '-'} 末位置=(${st.x.toFixed(0)},${st.y.toFixed(0)})`);
+  }
 }
 
 // PetPool 机制：多成员时永不选到 exclude 且均匀覆盖

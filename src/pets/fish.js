@@ -333,6 +333,7 @@
       L: L,
       palette: 0,
       profile: FISH_PROFILE,
+      PALETTES: PALETTES,
       draw: draw,
       drawIcon: null
     });

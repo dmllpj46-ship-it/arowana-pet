@@ -65,7 +65,10 @@
 
   function spawn(def) {
     var st = Brain.create(W, H, def.profile);
-    st.palette = def.palette || 0;
+    // 每次登场随机选一个配色变体，增加新鲜感（回退到 def.palette）
+    st.palette = (def.PALETTES && def.PALETTES.length)
+      ? Math.floor(Math.random() * def.PALETTES.length)
+      : (def.palette || 0);
     st.scale = fitScale(def);
     // 陆地动物：出生点在活动带中下部；鱼类：随机
     if (def.profile.band) {
