@@ -158,11 +158,11 @@ const WEIGHTS = CFG.WEIGHTS;
     if (id === 'fish') continue;
     if (!wCounts[id]) { bad++; console.error('pickWeighted 漏掉了', id); }
   }
-  // fish 权重3：从不带 exclude 的抽取里，fish 命中率应 ≈ 3/8 = 37.5%
+  // fish 权重5：从不带 exclude 的抽取里，fish 命中率应 ≈ 5/10 = 50%
   const fc = {}; for (let i = 0; i < 6000; i++) { const p = PetPool.pickWeighted(ids, null, WEIGHTS); fc[p] = (fc[p] || 0) + 1; }
   const fishRate = (fc.fish || 0) / 6000;
-  console.log('加权命中率: fish=' + (fishRate * 100).toFixed(1) + '% (期望≈37.5%)');
-  if (fishRate < 0.30 || fishRate > 0.45) { bad++; console.error('fish 加权命中率偏离期望:', (fishRate * 100).toFixed(1) + '%'); }
+  console.log('加权命中率: fish=' + (fishRate * 100).toFixed(1) + '% (期望≈50%)');
+  if (fishRate < 0.42 || fishRate > 0.58) { bad++; console.error('fish 加权命中率偏离期望:', (fishRate * 100).toFixed(1) + '%'); }
 }
 
 console.log('注册物种:', ids.join(', '));
