@@ -1,8 +1,19 @@
-// 离屏冒烟：假 canvas 跑 1200 帧（双鱼），检查无 NaN、坐标量级正常
+// 离屏冒烟：遍历 PetRegistry 全部物种，检查无 NaN、坐标量级正常；并验证 PetPool 机制
 global.window = globalThis;
-require('./src/fish.js');
+require('./src/registry.js');
 require('./src/brain.js');
 require('./src/bubble.js');
+const PetPool = require('./src/petpool.js');
+
+// 注册所有宠物（与 main.js 的注册顺序保持一致）
+require('./src/pets/fish.js');
+
+const Registry = globalThis.PetRegistry;
+const ids = Registry.ids();
+if (ids.length === 0) {
+  console.error('SMOKE FAIL — 注册表为空');
+  process.exit(1);
+}
 
 let bad = 0;
 const bbox = { minX: 1e9, minY: 1e9, maxX: -1e9, maxY: -1e9 };
@@ -44,54 +55,83 @@ const ctx = {
   fillRect: (...a) => num('fillRect', a),
   clearRect: noop,
   createLinearGradient: (...a) => { num('gradient', a); return grad; },
-  fillStyle: '', strokeStyle: '', lineWidth: 1
+  fillStyle: '', strokeStyle: '', lineWidth: 1, globalAlpha: 1
 };
 
 const W = 1920, H = 1080;
-const st1 = Brain.create(W, H);
-st1.scale = 1; st1.palette = 0; st1.x = W * 0.40; st1.y = H * 0.45;
-const st2 = Brain.create(W, H);
-st2.scale = 0.85; st2.palette = 1; st2.x = W * 0.62; st2.y = H * 0.58;
-st2.phase += 2.1;
-const bs1 = Bubbles.create();
-const bs2 = Bubbles.create();
 const dt = 1 / 60;
 
-function checkBounds(st, tag) {
-  if (!isFinite(st.x) || !isFinite(st.y) || !isFinite(st.heading) || !isFinite(st.phase)) {
-    bad++; console.error(tag, '状态出现 NaN'); return false;
+// 每个物种跑 800 帧：update + particles + draw，校验状态与包围盒
+for (const id of ids) {
+  const def = Registry.get(id);
+  const st = Brain.create(W, H, def.profile);
+  st.palette = def.palette || 0;
+  st.scale = 1;
+  if (def.profile.band) {
+    st.y = H * (def.profile.band[0] + def.profile.band[1]) / 2;
   }
-  if (st.x < 0 || st.x > W || st.y < 0 || st.y > H) {
-    bad++; console.error(tag, '游出屏幕', st.x.toFixed(1), st.y.toFixed(1)); return false;
+  const bs = Bubbles.create();
+
+  for (let i = 0; i < 800; i++) {
+    Brain.update(st, dt, W, H);
+    if (def.profile.particles !== 'none') Bubbles.update(bs, dt, st, def.L);
+    if (i % 10 === 0) def.draw(ctx, st);
+    if (def.profile.particles !== 'none') Bubbles.draw(ctx, bs);
+    if (!isFinite(st.x) || !isFinite(st.y) || !isFinite(st.heading) || !isFinite(st.phase)) {
+      bad++; console.error(id, '状态出现 NaN'); break;
+    }
+    if (st.x < 0 || st.x > W || st.y < 0 || st.y > H) {
+      bad++; console.error(id, '游出屏幕', st.x.toFixed(1), st.y.toFixed(1)); break;
+    }
+    // 陆地动物必须留在活动带
+    if (def.profile.band) {
+      if (st.y < def.profile.band[0] * H - 1 || st.y > def.profile.band[1] * H + 1) {
+        bad++; console.error(id, '越出活动带', st.y.toFixed(1)); break;
+      }
+    }
   }
-  return true;
+
+  // 拖拽路径
+  Brain.startDrag(st, st.x, st.y);
+  Brain.dragTo(st, 200, 200);
+  for (let i = 0; i < 60; i++) Brain.update(st, dt, W, H);
+  Brain.endDrag(st, W, H);
+  for (let i = 0; i < 120; i++) Brain.update(st, dt, W, H);
+  def.draw(ctx, st);
+
+  // 托盘小图标
+  def.draw(ctx, {
+    x: 30, y: 32, scale: def.iconScale || 0.20, heading: 0, phase: 1.1,
+    curv: 0, ampScale: 0.9, finPhase: 0, blink: 1, palette: def.palette || 0,
+    profile: def.profile
+  });
+
+  console.log(`  [${id}] L=${def.L} 气泡=${def.profile.particles !== 'none' ? bs.bubbles.length : '-'} 末位置=(${st.x.toFixed(0)},${st.y.toFixed(0)})`);
 }
 
-for (let i = 0; i < 1200; i++) {
-  Brain.update(st1, dt, W, H);
-  Brain.update(st2, dt, W, H);
-  Bubbles.update(bs1, dt, st1, Fish.L);
-  Bubbles.update(bs2, dt, st2, Fish.L);
-  if (i % 10 === 0) { Fish.draw(ctx, st1); Fish.draw(ctx, st2); }
-  Bubbles.draw(ctx, bs1);
-  Bubbles.draw(ctx, bs2);
-  if (!checkBounds(st1, '鱼1') || !checkBounds(st2, '鱼2')) break;
+// PetPool 机制：多成员时永不选到 exclude 且均匀覆盖
+if (ids.length > 1) {
+  for (let i = 0; i < 2000; i++) {
+    const p = PetPool.pick(ids, ids[0]);
+    if (p === ids[0]) { bad++; console.error('PetPool 选到了当前宠物'); break; }
+    if (ids.indexOf(p) === -1) { bad++; console.error('PetPool 选出了池外 id:', p); break; }
+  }
+  const counts = {};
+  for (let i = 0; i < 2000; i++) {
+    const p = PetPool.pick(ids, ids[0]);
+    counts[p] = (counts[p] || 0) + 1;
+  }
+  const covered = Object.keys(counts).length;
+  if (covered !== ids.length - 1) {
+    bad++; console.error('PetPool 覆盖不全，期望', ids.length - 1, '实得', covered);
+  }
 }
+// 单成员退化：exclude 唯一成员时返回它自身（等价"池里只有它，只能还是它"）
+if (PetPool.pick(['solo'], 'solo') !== 'solo') { bad++; console.error('PetPool 单成员退化异常'); }
+// 空池兜底
+if (PetPool.pick([], 'x') !== 'x') { bad++; console.error('PetPool 空池兜底异常'); }
 
-// 拖拽路径（鱼1）
-Brain.startDrag(st1, st1.x, st1.y);
-Brain.dragTo(st1, 100, 100);
-for (let i = 0; i < 60; i++) Brain.update(st1, dt, W, H);
-Brain.endDrag(st1, W, H);
-for (let i = 0; i < 120; i++) Brain.update(st1, dt, W, H);
-Fish.draw(ctx, st1);
-Fish.draw(ctx, st2);
-
-// 托盘图标参数（小尺寸，双色各画一次）
-Fish.draw(ctx, { x: 30, y: 32, scale: 0.20, heading: 0, phase: 1.1, curv: 0, ampScale: 0.9, finPhase: 0, blink: 1, palette: 0 });
-Fish.draw(ctx, { x: 30, y: 32, scale: 0.20, heading: 0, phase: 1.1, curv: 0, ampScale: 0.9, finPhase: 0, blink: 0, palette: 1 });
-
-console.log('绘制包围盒(鱼局部坐标):', JSON.stringify(bbox, (k, v) => typeof v === 'number' ? +v.toFixed(1) : v));
-console.log('体长 L =', Fish.L, '| 鱼1气泡 =', bs1.bubbles.length, '| 鱼2气泡 =', bs2.bubbles.length);
-console.log(bad === 0 ? 'SMOKE OK — 无 NaN，坐标量级正常' : 'SMOKE FAIL — ' + bad + ' 处问题');
+console.log('注册物种:', ids.join(', '));
+console.log('绘制包围盒(局部坐标):', JSON.stringify(bbox, (k, v) => typeof v === 'number' ? +v.toFixed(1) : v));
+console.log(bad === 0 ? 'SMOKE OK — 全部物种无 NaN，PetPool 机制正确' : 'SMOKE FAIL — ' + bad + ' 处问题');
 process.exit(bad === 0 ? 0 : 1);

@@ -1,18 +1,33 @@
 /*
- * renderer.js — 渲染循环、拖拽、与主进程通信
- * 双鱼版：两条独立行为状态机 + 独立气泡，颜色见 fish.js PALETTES。
- * 没有 Electron 时（直接双击 index.html）也能跑，只少了置顶/穿透/托盘。
+ * renderer.js — 渲染循环、拖拽、与主进程通信（单只 active pet 版）
+ *
+ * 架构：
+ *   - PetRegistry 里注册了所有物种（src/pets/*.js）
+ *   - 主进程通过 IPC 'pet:set-active' 告诉本进程当前该显示哪只
+ *   - 切换时旧宠物淡出(TRANSITION_MS/2) -> 销毁 -> 新宠物淡入(TRANSITION_MS/2)
+ *   - 拖拽命中、包围盒回报、托盘图标都基于当前 active 宠物
+ *
+ * 没有 Electron（直接双击 index.html）时自动兜底：显示注册表第一只，进入预览模式。
  */
 (function () {
   'use strict';
 
-  var api = window.pet || { sendBox: function () {}, setTray: function () {}, quit: function () {} };
+  var CFG = window.PetConfig || { TRANSITION_MS: 500 };
+  var FADE_MS = CFG.TRANSITION_MS / 2;
+
+  var api = window.pet || {
+    sendBox: function () {}, setTray: function () {}, quit: function () {},
+    setActive: null
+  };
   var cvs = document.getElementById('c');
   var ctx = cvs.getContext('2d');
   var W = 0, H = 0, DPR = 1;
-  var fishes = [];
-  var dragFish = null;
-  var L = Fish.L;
+
+  // 当前激活的宠物：{ def, st, bs, alpha, dying }
+  var active = null;
+  var pendingSpawn = null;   // 淡出完成后要登场的新宠物 def
+  var dragPet = null;
+  var boxT = 0;
 
   function resize() {
     DPR = Math.min(window.devicePixelRatio || 1, 2);
@@ -21,103 +36,134 @@
     cvs.height = Math.round(H * DPR);
     cvs.style.width = W + 'px';
     cvs.style.height = H + 'px';
-    for (var i = 0; i < fishes.length; i++) {
-      var st = fishes[i].st;
-      st.x = Math.max(30, Math.min(st.x, W - 30));
-      st.y = Math.max(30, Math.min(st.y, H - 30));
+    if (active && active.st) {
+      active.st.x = Math.max(30, Math.min(active.st.x, W - 30));
+      active.st.y = Math.max(30, Math.min(active.st.y, H - 30));
     }
   }
 
-  function makeTrayIcon() {
+  function baseScale() {
+    return Math.max(0.75, Math.min(1.6, Math.min(W, H) / 1080));
+  }
+
+  // 根据物种 L 反推 scale：让不同体型的宠物在屏幕上大小协调
+  function fitScale(def) {
+    return baseScale() * (240 / def.L);
+  }
+
+  function makeTrayIcon(def) {
     var c = document.createElement('canvas');
     c.width = 64; c.height = 64;
     var g = c.getContext('2d');
-    Fish.draw(g, {
-      x: 30, y: 32, scale: 0.20, heading: 0, phase: 1.1,
-      curv: 0, ampScale: 0.9, finPhase: 0, blink: 0, palette: 0
+    def.draw(g, {
+      x: 32, y: 32, scale: def.iconScale || 0.20, heading: 0, phase: 1.1,
+      curv: 0, ampScale: 0.9, finPhase: 0, blink: 0, palette: def.palette || 0,
+      profile: def.profile
     });
     return c.toDataURL('image/png');
   }
 
-  function sendBoxes() {
-    var boxes = [];
-    for (var i = 0; i < fishes.length; i++) {
-      var st = fishes[i].st;
-      boxes.push({ x: st.x, y: st.y, r: 0.6 * L * st.scale });
+  function spawn(def) {
+    var st = Brain.create(W, H, def.profile);
+    st.palette = def.palette || 0;
+    st.scale = fitScale(def);
+    // 陆地动物：出生点在活动带中下部；鱼类：随机
+    if (def.profile.band) {
+      st.y = H * (def.profile.band[0] + def.profile.band[1]) / 2;
     }
-    api.sendBox(boxes);
+    return { def: def, st: st, bs: Bubbles.create(), alpha: 0, dying: false };
   }
 
-  var boxT = 0;
+  function sendBoxes() {
+    if (!active || active.dying) return;
+    var st = active.st, L = active.def.L;
+    api.sendBox([{ x: st.x, y: st.y, r: 0.6 * L * st.scale }]);
+  }
+
+  function setActivePet(id) {
+    var def = window.PetRegistry.get(id);
+    if (!def) return;
+    if (active && active.def.id === id && !active.dying) return; // 已是当前
+    if (active) {
+      active.dying = true;   // 旧的进入淡出，frame 里到 0 后销毁
+      pendingSpawn = def;
+    } else {
+      active = spawn(def);
+      active.alpha = 0;
+    }
+    try { api.setTray(makeTrayIcon(def)); } catch (err) { /* 预览模式无托盘 */ }
+  }
+
   function frame(now) {
     var dt = Math.min((now - (frame.last || now)) / 1000, 0.05);
     frame.last = now;
 
-    var i;
-    for (i = 0; i < fishes.length; i++) {
-      Brain.update(fishes[i].st, dt, W, H);
-      Bubbles.update(fishes[i].bs, dt, fishes[i].st, L);
+    // 淡入淡出管理
+    if (active) {
+      if (active.dying) {
+        active.alpha -= dt * 1000 / FADE_MS;
+        if (active.alpha <= 0) {
+          active = pendingSpawn ? spawn(pendingSpawn) : null;
+          pendingSpawn = null;
+        }
+      } else if (active.alpha < 1) {
+        active.alpha = Math.min(1, active.alpha + dt * 1000 / FADE_MS);
+      }
+    }
+
+    if (active && !active.dying) {
+      Brain.update(active.st, dt, W, H);
+      if (active.def.profile.particles !== 'none') {
+        Bubbles.update(active.bs, dt, active.st, active.def.L);
+      }
     }
 
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     ctx.clearRect(0, 0, W, H);
-    for (i = 0; i < fishes.length; i++) {
-      Bubbles.draw(ctx, fishes[i].bs);
-      Fish.draw(ctx, fishes[i].st);
+    if (active) {
+      ctx.globalAlpha = Math.max(0, Math.min(1, active.alpha));
+      if (!active.dying && active.def.profile.particles !== 'none') {
+        Bubbles.draw(ctx, active.bs);
+      }
+      active.def.draw(ctx, active.st);
+      ctx.globalAlpha = 1;
     }
 
     boxT += dt;
-    if (boxT > 0.2) {
-      boxT = 0;
-      sendBoxes();
-    }
+    if (boxT > 0.2) { boxT = 0; sendBoxes(); }
     requestAnimationFrame(frame);
   }
 
   function init() {
     if (!window.pet) document.body.className = 'preview';
     resize();
-    var base = Math.max(0.75, Math.min(1.6, Math.min(W, H) / 1080));
 
-    var st1 = Brain.create(W, H);
-    st1.palette = 0;
-    st1.scale = base;
-    st1.x = W * 0.40; st1.y = H * 0.45;
-
-    var st2 = Brain.create(W, H);
-    st2.palette = 1;
-    st2.scale = base * 0.85;
-    st2.x = Math.max(30, Math.min(W * 0.62, W - 30));
-    st2.y = Math.max(30, Math.min(H * 0.58, H - 30));
-    st2.phase += 2.1;
-    st2.modeT = Math.random() * st2.modeDur;
-
-    fishes = [
-      { st: st1, bs: Bubbles.create() },
-      { st: st2, bs: Bubbles.create() }
-    ];
     window.addEventListener('resize', resize);
 
     cvs.addEventListener('mousedown', function (e) {
-      for (var i = fishes.length - 1; i >= 0; i--) {
-        if (fishes[i].st && Brain.hit(fishes[i].st, e.clientX, e.clientY, L)) {
-          dragFish = fishes[i].st;
-          Brain.startDrag(dragFish, e.clientX, e.clientY);
-          break;
-        }
+      if (!active || active.dying) return;
+      if (Brain.hit(active.st, e.clientX, e.clientY, active.def.L)) {
+        dragPet = active.st;
+        Brain.startDrag(dragPet, e.clientX, e.clientY);
       }
     });
     window.addEventListener('mousemove', function (e) {
-      if (dragFish) {
-        Brain.dragTo(dragFish, e.clientX, e.clientY);
+      if (dragPet) {
+        Brain.dragTo(dragPet, e.clientX, e.clientY);
         sendBoxes();
       }
     });
     window.addEventListener('mouseup', function () {
-      if (dragFish) { Brain.endDrag(dragFish, W, H); dragFish = null; }
+      if (dragPet) { Brain.endDrag(dragPet, W, H); dragPet = null; }
     });
 
-    try { api.setTray(makeTrayIcon()); } catch (err) { /* 预览模式无托盘 */ }
+    // Electron：主进程接管；预览：兜底显示注册表第一只
+    if (window.pet && api.setActive) {
+      api.setActive(setActivePet);
+    } else {
+      var ids = window.PetRegistry.ids();
+      if (ids.length) setActivePet(ids[0]);
+    }
     requestAnimationFrame(frame);
   }
 

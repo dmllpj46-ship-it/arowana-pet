@@ -310,5 +310,32 @@
     ctx.restore();
   }
 
-  root.Fish = { L: L, draw: draw };
+  // 行为档案：金龙鱼全屏自由游动 + 气泡，速度/时长与原实现一致
+  var FISH_PROFILE = {
+    speed: { wander: 62, hover: 8, dash: 235 },
+    modeDur: { wander: [5, 11], hover: [3, 7], dash: [1.2, 2.6] },
+    headingMode: 'free',      // 全屏任意方向游动
+    band: null,               // 无活动带限制
+    blink: [2.5, 8],
+    particles: 'bubbles'
+  };
+
+  root.Fish = {
+    L: L, draw: draw, PROFILE: FISH_PROFILE,
+    PALETTES: PALETTES, HALF_H: halfH, AMP_AT: ampAt, TABLE_AT: tableAt
+  };
+
+  // 自注册进宠物池（registry 已加载时才有效）
+  if (root.PetRegistry) {
+    root.PetRegistry.register({
+      id: 'fish',
+      name: '金龙鱼',
+      L: L,
+      palette: 0,
+      profile: FISH_PROFILE,
+      draw: draw,
+      drawIcon: null
+    });
+  }
 })(typeof window !== 'undefined' ? window : globalThis);
+
