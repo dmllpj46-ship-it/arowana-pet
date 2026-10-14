@@ -13,6 +13,9 @@
   var TAU = Math.PI * 2;
   var MARGIN = 140;   // 距屏幕边缘多远开始往回打方向（陆地动物也会用）
 
+  // config.js 可能在 brain.js 之后才加载（smoke.js 就是这样），所以每帧现取
+  function cfg() { return root.PetConfig || {}; }
+
   // 默认档案（无 profile 时等价于原金龙鱼行为，保证零回归）
   var DEFAULT_PROFILE = {
     speed: { wander: 62, hover: 8, dash: 235 },
@@ -20,7 +23,8 @@
     headingMode: 'free',   // 'free' 全屏任意方向 | 'horizontal' 只左右移动
     band: null,            // 陆地动物活动带 [y0比例, y1比例]，null=全屏
     blink: [2.5, 8],
-    particles: 'none'      // 'bubbles' | 'motes' | 'none'
+    particles: 'none',     // 'bubbles' | 'motes' | 'none'
+    avoidR: null           // 主动避让半径（窗口坐标），null=用 CFG.AVOID_R
   };
 
   function mergeProfile(p) {
@@ -40,11 +44,46 @@
       headingMode: p.headingMode || DEFAULT_PROFILE.headingMode,
       band: p.band || null,
       blink: p.blink || DEFAULT_PROFILE.blink,
-      particles: p.particles || DEFAULT_PROFILE.particles
+      particles: p.particles || DEFAULT_PROFILE.particles,
+      avoidR: p.avoidR != null ? p.avoidR : null
     };
   }
 
-  function rnd(a, b) { return a + Math.random() * (b - a); }
+  // 躲避强度：光标在 avoidR 内时 >0，越近越接近 1；算完顺便把逃离目标点写进 st.fleeX/Y。
+// 逃离点 = 从自身沿「远离光标」方向推到半径之外，落点再夹回屏幕与活动带，
+// 所以宠物是绕开鼠标游走，而不是原地抖。
+function evadeStrength(st, W, H) {
+  var c = st.cursor;
+  var R = st.avoidR;
+  if (!c || !(R > 0)) return 0;
+  if (!isFinite(c.x) || !isFinite(c.y)) return 0;
+
+  var dx = st.x - c.x, dy = st.y - c.y;
+  var d = Math.sqrt(dx * dx + dy * dy);
+  if (d >= R) return 0;
+  if (d < 0.001) { dx = 1; dy = 0; d = 1; }   // 光标正压在宠物身上：随便挑个方向跑
+
+  var ev = 1 - d / R;
+  var nx = dx / d, ny = dy / d;
+  // 只左右移动的物种（猫狗龟蛙）必须有一个横向分量才躲得开，
+  // 否则光标正好在正上方/正下方时会因为 flattenAngle 而原地不动。
+  if (st.profile.headingMode === 'horizontal' && Math.abs(nx) < 0.35) {
+    nx = dx >= 0 ? 1 : -1;
+    ny = 0;
+    d = Math.abs(st.x - c.x) || 1;
+    ev = Math.max(ev, (1 - d / R) * 0.8);
+  }
+  var out = R * 1.25;
+  var m = Math.min(MARGIN, Math.min(W, H) * 0.35);
+  st.fleeX = clamp(st.x + nx * out, m, Math.max(m, W - m));
+  st.fleeY = clamp(st.y + ny * out, m, Math.max(m, H - m));
+  if (st.profile.band) {
+    st.fleeY = clamp(st.fleeY, st.profile.band[0] * H, st.profile.band[1] * H);
+  }
+  return ev;
+}
+
+function rnd(a, b) { return a + Math.random() * (b - a); }
   function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
   function wrap(a) { a %= TAU; if (a > Math.PI) a -= TAU; if (a < -Math.PI) a += TAU; return a; }
 
@@ -94,6 +133,8 @@
       bobT: rnd(0, TAU),
       drag: false, dragOX: 0, dragOY: 0,
       palette: 0,
+      cursor: null,          // 主进程轮询到的光标位置（窗口坐标），没有就是 null
+      avoidR: P.avoidR != null ? P.avoidR : (cfg().AVOID_R != null ? cfg().AVOID_R : 260),
       profile: P
     };
     if (P.headingMode === 'horizontal') {
@@ -143,11 +184,26 @@
       }
     }
 
+    // 主动避让光标：越近推得越狠，命中为 0 时完全不影响原有行为
+    var ev = evadeStrength(st, W, H);
+    if (ev > 0) {
+      // 躲避中不许悬停（贴脸不动最挡事），也不许冲刺（高速擦过光标更烦）
+      if (st.mode !== 'wander') {
+        st.mode = 'wander';
+        st.modeT = 0;
+        st.modeDur = rnd(st.profile.modeDur.wander[0], st.profile.modeDur.wander[1]);
+      }
+      st.tx = st.fleeX;
+      st.ty = st.fleeY;
+    }
+
     // 目标速度走物种档案
     var ts = st.mode === 'hover' ? st.profile.speed.hover
            : st.mode === 'dash' ? st.profile.speed.dash
            : st.profile.speed.wander;
-    st.speed += (ts - st.speed) * Math.min(1, dt * 1.8);
+    // 躲光标时提速，但有上限，免得变成失控的导弹
+    if (ev > 0) ts = ts + (st.profile.speed.dash - ts) * ev * 0.55;
+    st.speed += (ts - st.speed) * Math.min(1, dt * (ev > 0 ? 3.2 : 1.8));
 
     // 转向：角速度有上限，转弯因此是弧线而不是折线
     var want = Math.atan2(st.ty - st.y, st.tx - st.x);
@@ -197,8 +253,11 @@
     pickTarget(st, W, H);
   }
 
+  // 主进程轮询光标后调用。坐标是窗口坐标（已减掉窗口 origin）。
+  function setCursor(st, c) { st.cursor = c; }
+
   root.Brain = {
-    create: create, update: update, hit: hit,
+    create: create, update: update, hit: hit, setCursor: setCursor,
     startDrag: startDrag, dragTo: dragTo, endDrag: endDrag
   };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -2,6 +2,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('pet', {
   sendBox: (box) => ipcRenderer.send('pet-box', box),
+  // 主进程 -> 渲染：光标位置（窗口坐标），宠物据此主动躲开鼠标
+  onCursor: (cb) => ipcRenderer.on('pet:cursor', (_e, c) => cb(c)),
   setTray: (dataUrl) => ipcRenderer.send('set-tray', dataUrl),
   quit: () => ipcRenderer.send('quit'),
   swap: () => ipcRenderer.send('swap-pet'),

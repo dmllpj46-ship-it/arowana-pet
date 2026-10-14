@@ -10,6 +10,13 @@
  *             例：fish=5 表示金龙鱼命中概率是其他(权重1)的 5 倍（约50%）。
  *             调大某个值让它更常出现；想让所有宠物等概率就把全部设成相同值。
  * STATE_FILE  主进程持久化的状态文件名（存在 userData 下），记录当前宠物与激活时间。
+ * AVOID_R     主动避让半径（像素）。光标进入这个圆内，宠物就开始往反方向游，
+ *             而不是等你把鼠标压上来才反应。
+ * AVOID_GAIN  避让强度倍率。调大躲得更急，调小更懒散。
+ * GRAB_SETTLE_MS / GRAB_MOVE_EPS
+ *             「抓取意图」判定：光标在宠物附近，且移动速度低于 GRAB_MOVE_EPS(px/ms)
+ *             持续 GRAB_SETTLE_MS 毫秒，才把鼠标事件交给宠物。
+ *             这样你在移动鼠标操作别的窗口时，点击一律穿透，绝不会被宠物吃掉。
  */
 (function (root) {
   'use strict';
@@ -22,10 +29,16 @@
     TRANSITION_MS: 500,
     POOL: ['fish', 'cat', 'dog', 'turtle', 'frog', 'bird'],
     WEIGHTS: { fish: 5, cat: 1, dog: 1, turtle: 1, frog: 1, bird: 1 },
-    STATE_FILE: 'pet-state.json'
+    STATE_FILE: 'pet-state.json',
+    AVOID_R: 260,
+    AVOID_GAIN: 1.0,
+    GRAB_SETTLE_MS: 260,
+    GRAB_MOVE_EPS: 0.6
   };
 
   if (!isFinite(cfg.ROTATE_MS) || cfg.ROTATE_MS < 1000) cfg.ROTATE_MS = oneHour;
+  if (!isFinite(cfg.AVOID_R) || cfg.AVOID_R < 0) cfg.AVOID_R = 260;
+  if (!isFinite(cfg.AVOID_GAIN) || cfg.AVOID_GAIN < 0) cfg.AVOID_GAIN = 1;
 
   if (typeof module !== 'undefined' && module.exports) module.exports = cfg;
   root.PetConfig = cfg;

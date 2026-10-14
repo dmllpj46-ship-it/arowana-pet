@@ -163,6 +163,14 @@
     // Electron：主进程接管；预览：兜底显示注册表第一只
     if (window.pet && api.setActive) {
       api.setActive(setActivePet);
+      // 光标位置：每帧喂给 brain，让宠物主动避开鼠标。
+      // 拖拽中不跟随，否则会把宠物从手里拽走。
+      if (api.onCursor) {
+        api.onCursor(function (c) {
+          if (dragPet) return;
+          if (active && active.st) Brain.setCursor(active.st, c);
+        });
+      }
     } else {
       var ids = window.PetRegistry.ids();
       if (ids.length) setActivePet(ids[0]);

@@ -151,11 +151,40 @@ function createWindow() {
   win.on('closed', () => { win = null; });
 }
 
-// 没有任何原生依赖的鼠标 proximity：轮询系统光标坐标即可
+// 没有任何原生依赖的鼠标 proximity：轮询系统光标坐标即可。
+//
+// 「抓取意图」判定（避免抢用户点击）：
+//   光标落在宠物附近 *且* 已经停稳一段时间，才把鼠标事件交给宠物。
+//   只要光标在动（说明你正在操作别的窗口 / 拖东西），一律穿透。
+// 这样宠物停在按钮上时不会把点击吃掉，移动鼠标时也不会突然抢焦点。
 function startProximityPolling() {
+  let last = null;        // 上一轮光标坐标
+  let settleAt = 0;      // 光标连续停在宠物附近的起始时刻
+  let wasNear = false;
+
   setInterval(() => {
-    if (!win || boxes.length === 0) return;
+    if (!win || win.isDestroyed()) return;
+
     const p = screen.getCursorScreenPoint();
+
+    // 光标在动？用两点位移和轮询间隔算速度（px/ms）
+    let moving = false;
+    if (last) {
+      const d = Math.hypot(p.x - last.x, p.y - last.y);
+      moving = d > CFG.GRAB_MOVE_EPS * POLL_MS;
+    }
+    last = { x: p.x, y: p.y };
+
+    // 无论抓不抓得到，光标位置都推给渲染进程：宠物靠它主动躲开
+    if (win.webContents && !win.webContents.isDestroyed()) {
+      win.webContents.send('pet:cursor', { x: p.x - origin.x, y: p.y - origin.y });
+    }
+
+    if (boxes.length === 0) {
+      if (interactive) { interactive = false; win.setIgnoreMouseEvents(true, { forward: true }); }
+      return;
+    }
+
     const near = boxes.some((box) => {
       if (!box || !isFinite(box.x) || !isFinite(box.y) || !isFinite(box.r)) return false;
       const dx = p.x - origin.x - box.x;
@@ -163,9 +192,19 @@ function startProximityPolling() {
       const r = box.r + PROXIMITY_PAD;
       return dx * dx + dy * dy < r * r;
     });
-    if (near !== interactive) {
-      interactive = near;
-      win.setIgnoreMouseEvents(!near, { forward: true });
+
+    const now = Date.now();
+    if (near) {
+      if (!wasNear) settleAt = now;      // 刚进范围，从现在开始计时
+    } else {
+      settleAt = 0;
+    }
+    wasNear = near;
+
+    const wantInteractive = near && !moving && (now - settleAt) >= CFG.GRAB_SETTLE_MS;
+    if (wantInteractive !== interactive) {
+      interactive = wantInteractive;
+      win.setIgnoreMouseEvents(!interactive, { forward: true });
     }
   }, POLL_MS);
 }

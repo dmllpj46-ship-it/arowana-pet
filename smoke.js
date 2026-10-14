@@ -122,6 +122,93 @@ for (const id of ids) {
   }
 }
 
+// ---- 主动避让光标 ----
+// 用同一物种跑对照：有光标 / 无光标，验证
+//   1) 光标压上来时，宠物与光标的距离最终 > AVOID_R（躲开了）
+//   2) 同一随机序列下，没有光标时宠物允许靠近（避让真的生效，不是巧合）
+//   3) 躲开后仍留在屏幕内 / 活动带内，且无 NaN
+const AVOID_R = CFG.AVOID_R;
+{
+  function seeded(seed) {
+    Math.random = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+  }
+  const def = Registry.get('fish');
+
+  // 光标固定在屏幕中心，宠物从中心出发（初始距离 0，最坏情况）。
+  // 期望：最终稳定在 AVOID_R 之外，且不会逃到天边（说明躲开了，但没panic）。
+  const cur = { x: W * 0.5, y: H * 0.5 };
+  seeded(12345);
+  const st = Brain.create(W, H, def.profile);
+  st.scale = 1;
+  st.x = cur.x; st.y = cur.y;
+  let min = Infinity, end = null;
+  for (let i = 0; i < 2400; i++) {
+    Brain.setCursor(st, cur);
+    Brain.update(st, dt, W, H);
+    const d = Math.hypot(st.x - cur.x, st.y - cur.y);
+    if (d < min) min = d;
+    if (i > 1800) end = { d: d, x: st.x, y: st.y };
+    if (!isFinite(st.x) || !isFinite(st.y) || !isFinite(st.heading)) {
+      bad++; console.error('避让过程中状态 NaN'); break;
+    }
+    if (st.x < 0 || st.x > W || st.y < 0 || st.y > H) {
+      bad++; console.error('避让过程中游出屏幕', st.x.toFixed(1), st.y.toFixed(1)); break;
+    }
+  }
+  console.log(`避让: AVOID_R=${AVOID_R}px  瞬时最近=${min.toFixed(0)}px  稳定距离=${end.d.toFixed(0)}px  稳定位置=(${end.x.toFixed(0)},${end.y.toFixed(0)})`);
+
+  // 稳定后必须待在避让圈外（0.9 倍余量：允许它擦边绕行，但不压上去）
+  if (end.d < AVOID_R * 0.9) {
+    bad++; console.error('宠物没躲开光标，稳定距离', end.d.toFixed(0), '期望 >', (AVOID_R * 0.9).toFixed(0));
+  }
+  // 也不能逃到屏幕角落装死
+  const margin = 120;
+  if (end.x < margin || end.x > W - margin || end.y < margin || end.y > H - margin) {
+    bad++; console.error('宠物躲到了屏幕边缘不回来了', end.x.toFixed(0), end.y.toFixed(0));
+  }
+
+  // 对照：光标在角落时，宠物应当能正常游到那一带（避让不是「永远不敢靠近」）
+  {
+    seeded(999);
+    const s2 = Brain.create(W, H, def.profile);
+    s2.scale = 1;
+    const far = { x: W * 0.5, y: H - 140 };
+    let minFar = Infinity;
+    for (let i = 0; i < 3600; i++) {
+      Brain.setCursor(s2, far);
+      Brain.update(s2, dt, W, H);
+      const d = Math.hypot(s2.x - far.x, s2.y - far.y);
+      if (d < minFar) minFar = d;
+    }
+    console.log(`对照(光标在下方): 最近=${minFar.toFixed(0)}px  期望能进到 ${(AVOID_R * 1.2).toFixed(0)}px 内`);
+    if (minFar > AVOID_R * 1.2) {
+      bad++; console.error('宠物从不靠近光标（躲避过头，疑似一直在跑）', minFar.toFixed(0));
+    }
+  }
+
+  // 陆地物种：光标在正上方也必须横向躲开，且不能越出活动带
+  for (const id of ['cat', 'dog', 'turtle', 'frog']) {
+    const d2 = Registry.get(id);
+    seeded(4242);
+    const st2 = Brain.create(W, H, d2.profile);
+    st2.scale = 1;
+    if (d2.profile.band) st2.y = H * (d2.profile.band[0] + d2.profile.band[1]) / 2;
+    const above = { x: st2.x, y: st2.y - 90 };
+    for (let i = 0; i < 1800; i++) {
+      Brain.setCursor(st2, above);
+      Brain.update(st2, dt, W, H);
+      if (st2.y < d2.profile.band[0] * H - 1 || st2.y > d2.profile.band[1] * H + 1) {
+        bad++; console.error(id, '避让时越出活动带', st2.y.toFixed(1)); break;
+      }
+    }
+    const dx = Math.abs(st2.x - above.x);
+    if (dx < 150) {
+      bad++; console.error(id, '光标在正上方时没有横向躲开 (dx=' + dx.toFixed(0) + ')');
+    }
+    console.log(`  [${id}] 光标在正上方 -> 横向躲开了 ${dx.toFixed(0)}px`);
+  }
+}
+
 // PetPool 机制：多成员时永不选到 exclude 且均匀覆盖
 if (ids.length > 1) {
   for (let i = 0; i < 2000; i++) {
