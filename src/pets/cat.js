@@ -27,6 +27,13 @@
     var gait = moving ? st.phase * 1.6 : 0;
     var swing = Math.min(0.55, 0.12 + speed / 300);
 
+    // 地面软阴影（屏幕坐标，先画垫底）——跳跃/冲刺时阴影变小变淡
+    var sc = st.scale || 1;
+    var air = moving ? Math.min(1, speed / 240) : 0;
+    C.groundShadow(ctx, st.x, st.y + L * sc * 0.30,
+      L * sc * (0.46 - air * 0.12), L * sc * (0.10 - air * 0.03),
+      0.16 - air * 0.06);
+
     C.facingTransform(ctx, st);
 
     // 待机呼吸：站立时身体随慢周期轻微起伏；行走时是步态弹跳
@@ -36,6 +43,8 @@
 
     // 耳朵偶尔抖动：用 finPhase 造一个稀疏的抽动
     var earTwitch = Math.max(0, Math.sin(st.finPhase * 1.7) - 0.86) * 3.2;
+    // 东张西望：待机时头部缓慢左右张望（行走时朝前）
+    var look = moving ? 0 : Math.sin(st.phase * 0.35) * 0.18;
 
     // —— 尾巴（S 形，随相位摇摆）——
     var tailSway = Math.sin(st.phase * 0.9) * L * 0.06;
@@ -60,9 +69,8 @@
     // —— 前腿（远侧）——
     C.drawLeg(ctx, L * 0.20, L * 0.10, gait, C.TROT[0], swing, P.furDark, L);
 
-    // —— 身体 ——
-    C.ellipse(ctx, 0, 0, L * 0.44, L * 0.26);
-    ctx.fillStyle = P.fur; ctx.fill();
+    // —— 身体（带体积光）——
+    C.shadedEllipse(ctx, 0, 0, L * 0.44, L * 0.26, P.fur, 0.9);
     // 肚皮
     C.ellipse(ctx, L * 0.02, L * 0.12, L * 0.34, L * 0.13);
     ctx.fillStyle = P.belly; ctx.fill();
@@ -83,10 +91,10 @@
     // —— 后腿（近侧）——
     C.drawLeg(ctx, -L * 0.16, L * 0.10, gait, 0, swing, P.fur, L);
 
-    // —— 头（略前倾）——
+    // —— 头（略前倾 + 待机张望）——
     ctx.save();
     ctx.translate(L * 0.44, -L * 0.05);
-    ctx.rotate(moving ? 0 : -0.05);
+    ctx.rotate((moving ? 0 : -0.05) + look);
 
     // 耳朵（远侧深色）
     C.ellipse(ctx, -L * 0.13, -L * 0.30 - earTwitch * 0.3, L * 0.10, L * 0.13, -0.25);
@@ -97,9 +105,8 @@
     C.ellipse(ctx, L * 0.11, -L * 0.29 - earTwitch * 0.4, L * 0.055, L * 0.075, 0.2 + earTwitch * 0.05);
     ctx.fillStyle = P.inner; ctx.fill();
 
-    // 头
-    C.ellipse(ctx, 0, 0, L * 0.26, L * 0.24);
-    ctx.fillStyle = P.fur; ctx.fill();
+    // 头（带体积光）
+    C.shadedEllipse(ctx, 0, 0, L * 0.26, L * 0.24, P.fur, 0.9);
     // 面部亮区
     C.ellipse(ctx, L * 0.05, L * 0.08, L * 0.16, L * 0.12);
     ctx.fillStyle = P.belly; ctx.fill();

@@ -57,16 +57,14 @@
     ctx.fillStyle = P.wing; ctx.fill();
     ctx.restore();
 
-    // —— 身体（流线型）——
-    C.ellipse(ctx, 0, 0, L * 0.30, L * 0.20);
-    ctx.fillStyle = P.body; ctx.fill();
+    // —— 身体（流线型，带体积光）——
+    C.shadedEllipse(ctx, 0, 0, L * 0.30, L * 0.20, P.body, 0.85);
     // 肚皮
     C.ellipse(ctx, L * 0.02, L * 0.08, L * 0.22, L * 0.10);
     ctx.fillStyle = P.belly; ctx.fill();
 
-    // —— 头 ——
-    C.ellipse(ctx, L * 0.26, -L * 0.06, L * 0.16, L * 0.14);
-    ctx.fillStyle = P.body; ctx.fill();
+    // —— 头（带体积光）——
+    C.shadedEllipse(ctx, L * 0.26, -L * 0.06, L * 0.16, L * 0.14, P.body, 0.85);
 
     // —— 喙 ——
     ctx.fillStyle = P.beak;

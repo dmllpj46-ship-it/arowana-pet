@@ -26,10 +26,19 @@
     var gait = moving ? st.phase * 1.5 : 0;
     var swing = Math.min(0.55, 0.12 + speed / 280);
 
+    // 地面软阴影（屏幕坐标垫底）
+    var sc = st.scale || 1;
+    var air = moving ? Math.min(1, speed / 300) : 0;
+    C.groundShadow(ctx, st.x, st.y + L * sc * 0.32,
+      L * sc * (0.48 - air * 0.12), L * sc * (0.10 - air * 0.03),
+      0.16 - air * 0.06);
+
     C.facingTransform(ctx, st);
 
     var bounce = moving ? Math.sin(gait * 2) * L * 0.014 : Math.sin(st.phase * 0.8) * L * 0.010;
     ctx.translate(0, bounce);
+    // 东张西望：待机时头部缓慢左右张望
+    var look = moving ? 0 : Math.sin(st.phase * 0.32) * 0.16;
 
     // —— 尾巴（上翘，快速摇摆）——
     var wag = Math.sin(st.phase * (moving ? 4.2 : 1.6)) * L * 0.07;
@@ -46,9 +55,8 @@
     // —— 前腿（远侧）——
     C.drawLeg(ctx, L * 0.20, L * 0.10, gait, C.TROT[0], swing, P.furDark, L);
 
-    // —— 身体 ——
-    C.ellipse(ctx, 0, 0, L * 0.46, L * 0.28);
-    ctx.fillStyle = P.fur; ctx.fill();
+    // —— 身体（带体积光）——
+    C.shadedEllipse(ctx, 0, 0, L * 0.46, L * 0.28, P.fur, 0.9);
     // 肚皮
     C.ellipse(ctx, L * 0.02, L * 0.13, L * 0.36, L * 0.13);
     ctx.fillStyle = P.belly; ctx.fill();
@@ -64,10 +72,10 @@
     // —— 后腿（近侧）——
     C.drawLeg(ctx, -L * 0.16, L * 0.10, gait, 0, swing, P.fur, L);
 
-    // —— 头 ——
+    // —— 头（待机张望）——
     ctx.save();
     ctx.translate(L * 0.46, -L * 0.06);
-    ctx.rotate(moving ? 0 : 0.03);
+    ctx.rotate((moving ? 0 : 0.03) + look);
 
     // 垂耳（远侧）
     ctx.save();
@@ -84,9 +92,8 @@
     ctx.fillStyle = P.furDark; ctx.fill();
     ctx.restore();
 
-    // 头
-    C.ellipse(ctx, 0, 0, L * 0.27, L * 0.25);
-    ctx.fillStyle = P.fur; ctx.fill();
+    // 头（带体积光）
+    C.shadedEllipse(ctx, 0, 0, L * 0.27, L * 0.25, P.fur, 0.9);
     // 口鼻部
     C.ellipse(ctx, L * 0.18, L * 0.10, L * 0.16, L * 0.12);
     ctx.fillStyle = P.belly; ctx.fill();

@@ -95,11 +95,46 @@
     ctx.fillStyle = color; ctx.fill();
   }
 
+  /*
+   * shadedEllipse：带体积光的椭圆——先铺实色底，再叠一层径向渐变
+   * （左上受光变亮、右下转暗），让扁平色块立刻有球体/体积感。
+   * 对任意 base 颜色都有效（用白/黑半透明叠加，无需预先算亮暗色）。
+   * strength 默认 1，调小让光影更柔和。
+   */
+  function shadedEllipse(ctx, cx, cy, rx, ry, base, strength, rot) {
+    var s = (strength == null) ? 1 : strength;
+    ellipse(ctx, cx, cy, rx, ry, rot);
+    ctx.fillStyle = base;
+    ctx.fill();
+    var m = Math.max(rx, ry);
+    var g = ctx.createRadialGradient(
+      cx - rx * 0.32, cy - ry * 0.42, m * 0.05,
+      cx + rx * 0.04, cy + ry * 0.06, m * 1.18
+    );
+    g.addColorStop(0, 'rgba(255,255,255,' + (0.50 * s).toFixed(3) + ')');
+    g.addColorStop(0.45, 'rgba(255,255,255,0)');
+    g.addColorStop(1, 'rgba(0,0,0,' + (0.30 * s).toFixed(3) + ')');
+    ctx.fillStyle = g;
+    ctx.fill();
+  }
+
+  /*
+   * groundShadow：贴在地面的软阴影椭圆。应在 facingTransform 之前调用，
+   * 用屏幕坐标定位（不随宠物朝向旋转），给陆地动物"落地"的踏实感。
+   */
+  function groundShadow(ctx, x, y, rx, ry, alpha) {
+    var a = (alpha == null) ? 0.16 : alpha;
+    ellipse(ctx, x, y, rx, ry);
+    ctx.fillStyle = 'rgba(0,0,0,' + a.toFixed(3) + ')';
+    ctx.fill();
+  }
+
   root.PetCommon = {
     TAU: TAU, clamp: clamp, lerp: lerp,
     facingTransform: facingTransform,
     ellipse: ellipse, drawEye: drawEye,
     TROT: TROT, legAngle: legAngle,
-    limb: limb, limbCurve: limbCurve, drawLeg: drawLeg
+    limb: limb, limbCurve: limbCurve, drawLeg: drawLeg,
+    shadedEllipse: shadedEllipse, groundShadow: groundShadow
   };
 })(typeof window !== 'undefined' ? window : globalThis);

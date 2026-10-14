@@ -63,6 +63,7 @@ const ctx = {
   fillRect: (...a) => num('fillRect', a),
   clearRect: noop,
   createLinearGradient: (...a) => { num('gradient', a); return grad; },
+  createRadialGradient: (...a) => { num('radialGradient', a); return grad; },
   fillStyle: '', strokeStyle: '', lineWidth: 1, globalAlpha: 1
 };
 

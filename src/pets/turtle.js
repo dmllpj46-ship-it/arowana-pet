@@ -25,25 +25,34 @@
     var gait = moving ? st.phase * 1.1 : 0;
     var swing = Math.min(0.4, 0.1 + speed / 220);
 
+    // 地面软阴影（屏幕坐标垫底）
+    var sc = st.scale || 1;
+    C.groundShadow(ctx, st.x, st.y + L * sc * 0.30,
+      L * sc * 0.46, L * sc * 0.09, 0.16);
+
     C.facingTransform(ctx, st);
 
     var bounce = moving ? Math.sin(gait * 2) * L * 0.008 : Math.sin(st.phase * 0.6) * L * 0.006;
     ctx.translate(0, bounce);
+    // 待机时偶尔伸头张望（dash 缩壳，靠 mode 判定）
+    var peek = moving ? Math.sin(st.phase * 0.4) * 0.05 : 0;
 
     // —— 后腿（远侧）——
     C.drawLeg(ctx, -L * 0.24, L * 0.14, gait, C.TROT[2], swing, P.skin, L);
     // —— 前腿（远侧）——
     C.drawLeg(ctx, L * 0.22, L * 0.14, gait, C.TROT[0], swing, P.skin, L);
 
-    // —— 龟壳（大圆顶）——
-    C.ellipse(ctx, 0, -L * 0.04, L * 0.44, L * 0.34);
-    ctx.fillStyle = P.shell; ctx.fill();
+    // —— 龟壳（大圆顶，带体积光）——
+    C.shadedEllipse(ctx, 0, -L * 0.04, L * 0.44, L * 0.34, P.shell, 0.7);
     // 壳缘深色
     C.ellipse(ctx, 0, -L * 0.04, L * 0.44, L * 0.34);
     ctx.strokeStyle = P.shellDark; ctx.lineWidth = L * 0.03; ctx.stroke();
-    // 壳内高光
+    // 壳内高光（顶部弧面反光）
     C.ellipse(ctx, -L * 0.10, -L * 0.16, L * 0.20, L * 0.12, -0.3);
     ctx.fillStyle = P.shellRim; ctx.fill();
+    // 顶部一道更亮的镜面高光，强化圆顶立体感
+    C.ellipse(ctx, -L * 0.06, -L * 0.22, L * 0.16, L * 0.05, -0.25);
+    ctx.fillStyle = 'rgba(255,255,255,0.28)'; ctx.fill();
 
     // —— 六边形花纹（中心一块大 + 周围放射）——
     ctx.strokeStyle = P.shellDark;
@@ -93,9 +102,8 @@
     ctx.moveTo(-L * 0.10, 0);
     ctx.lineTo(headExt - L * 0.10, 0);
     ctx.stroke();
-    // 头
-    C.ellipse(ctx, headExt, 0, L * 0.13, L * 0.10);
-    ctx.fillStyle = P.skin; ctx.fill();
+    // 头（带体积光，伸头张望时轻微上下点）
+    C.shadedEllipse(ctx, headExt, peek * L, L * 0.13, L * 0.10, P.skin, 0.8);
     if (st.mode !== 'dash') {
       // 眼睛
       C.drawEye(ctx, headExt + L * 0.04, -L * 0.02, L * 0.035, st.blink, P.eye, '#1a1a1a', P.skin);

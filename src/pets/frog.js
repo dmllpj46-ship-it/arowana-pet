@@ -27,6 +27,13 @@
     var hopT = hopping ? Math.min(1, speed / 160) : 0;
     var crouch = hopping ? 1 - hopT : 1;   // 起跳瞬间蹲最低
 
+    // 地面软阴影：跳跃越高阴影越小越淡（用同一套 sin 弧估算离地高度）
+    var sc = st.scale || 1;
+    var air = hopping ? Math.sin(hopT * Math.PI) : 0;   // 0..1..0
+    C.groundShadow(ctx, st.x, st.y + L * sc * 0.26,
+      L * sc * (0.34 - air * 0.12), L * sc * (0.08 - air * 0.025),
+      0.18 - air * 0.08);
+
     C.facingTransform(ctx, st);
 
     // 跳跃弧：hopT 大时身体上抬（y 负=上）
@@ -52,10 +59,9 @@
     ctx.closePath();
     ctx.fillStyle = P.dark; ctx.fill();
 
-    // —— 身体（矮胖，跳跃时拉伸）——
+    // —— 身体（矮胖，跳跃时拉伸，带体积光）——
     var bodyH = L * (0.30 + crouch * 0.03 - hopT * 0.04);
-    C.ellipse(ctx, 0, 0, L * 0.34, bodyH * 0.5 * stretch);
-    ctx.fillStyle = P.body; ctx.fill();
+    C.shadedEllipse(ctx, 0, 0, L * 0.34, bodyH * 0.5 * stretch, P.body, 0.75);
     // 肚皮
     C.ellipse(ctx, L * 0.02, L * 0.06, L * 0.26, bodyH * 0.32);
     ctx.fillStyle = P.belly; ctx.fill();
