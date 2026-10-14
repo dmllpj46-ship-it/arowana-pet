@@ -70,10 +70,15 @@ function saveState() {
 }
 
 // ---- 轮换 ----
+// 统一加权选取入口：排除当前宠物，按 CFG.WEIGHTS 加权随机
+function pickNext() {
+  return PetPool.pickWeighted(poolIds, currentId, CFG.WEIGHTS);
+}
+
 function scheduleRotation(delayMs) {
   if (rotateTimer) clearTimeout(rotateTimer);
   rotateTimer = setTimeout(() => {
-    rotateTo(PetPool.pick(poolIds, currentId));
+    rotateTo(pickNext());
     scheduleRotation(CFG.ROTATE_MS);
   }, Math.max(1000, delayMs));
 }
@@ -98,8 +103,8 @@ function initPool() {
     currentId = s.current;
     scheduleRotation(CFG.ROTATE_MS - elapsed);
   } else {
-    // 过期/首次：随机选一只（排除刚显示过的，避免连续一样）
-    currentId = PetPool.pick(poolIds, s ? s.current : null);
+    // 过期/首次：加权随机选一只（排除刚显示过的，避免连续一样）
+    currentId = PetPool.pickWeighted(poolIds, s ? s.current : null, CFG.WEIGHTS);
     saveState();
     scheduleRotation(CFG.ROTATE_MS);
   }
@@ -172,7 +177,7 @@ function refreshTray() {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: '当前宠物：' + petName(currentId), enabled: false },
     { type: 'separator' },
-    { label: '换一只', click: () => { rotateTo(PetPool.pick(poolIds, currentId)); scheduleRotation(CFG.ROTATE_MS); } },
+    { label: '换一只', click: () => { rotateTo(pickNext()); scheduleRotation(CFG.ROTATE_MS); } },
     { type: 'separator' },
     { label: '退出', click: () => app.quit() }
   ]));
@@ -213,7 +218,7 @@ if (!gotLock) {
   ipcMain.on('set-tray', (_e, url) => { try { buildTray(url); } catch (err) { /* 图标失败不影响主功能 */ } });
   ipcMain.on('quit', () => app.quit());
   ipcMain.on('swap-pet', () => {
-    rotateTo(PetPool.pick(poolIds, currentId));
+    rotateTo(pickNext());
     scheduleRotation(CFG.ROTATE_MS);
   });
 

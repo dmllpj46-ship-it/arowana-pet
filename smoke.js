@@ -4,6 +4,7 @@ require('./src/registry.js');
 require('./src/brain.js');
 require('./src/bubble.js');
 const PetPool = require('./src/petpool.js');
+const CFG = require('./src/config.js');
 
 // 注册所有宠物（与 main.js 的注册顺序保持一致）
 require('./src/pets/fish.js');
@@ -141,6 +142,28 @@ if (ids.length > 1) {
 if (PetPool.pick(['solo'], 'solo') !== 'solo') { bad++; console.error('PetPool 单成员退化异常'); }
 // 空池兜底
 if (PetPool.pick([], 'x') !== 'x') { bad++; console.error('PetPool 空池兜底异常'); }
+
+// 加权选取：不选 exclude、不越界；权重高的命中率应明显更高
+const WEIGHTS = CFG.WEIGHTS;
+{
+  const wCounts = {};
+  for (let i = 0; i < 6000; i++) {
+    const p = PetPool.pickWeighted(ids, 'fish', WEIGHTS);
+    if (p === 'fish') { bad++; console.error('pickWeighted 选到了 exclude'); break; }
+    if (ids.indexOf(p) === -1) { bad++; console.error('pickWeighted 选出池外 id:', p); break; }
+    wCounts[p] = (wCounts[p] || 0) + 1;
+  }
+  // 排除 fish 后，其余应等概率（权重全为1）。检查无成员为 0（都出现过）
+  for (const id of ids) {
+    if (id === 'fish') continue;
+    if (!wCounts[id]) { bad++; console.error('pickWeighted 漏掉了', id); }
+  }
+  // fish 权重3：从不带 exclude 的抽取里，fish 命中率应 ≈ 3/8 = 37.5%
+  const fc = {}; for (let i = 0; i < 6000; i++) { const p = PetPool.pickWeighted(ids, null, WEIGHTS); fc[p] = (fc[p] || 0) + 1; }
+  const fishRate = (fc.fish || 0) / 6000;
+  console.log('加权命中率: fish=' + (fishRate * 100).toFixed(1) + '% (期望≈37.5%)');
+  if (fishRate < 0.30 || fishRate > 0.45) { bad++; console.error('fish 加权命中率偏离期望:', (fishRate * 100).toFixed(1) + '%'); }
+}
 
 console.log('注册物种:', ids.join(', '));
 console.log('绘制包围盒(局部坐标):', JSON.stringify(bbox, (k, v) => typeof v === 'number' ? +v.toFixed(1) : v));
