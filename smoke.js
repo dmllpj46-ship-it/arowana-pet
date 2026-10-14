@@ -7,6 +7,12 @@ const PetPool = require('./src/petpool.js');
 
 // 注册所有宠物（与 main.js 的注册顺序保持一致）
 require('./src/pets/fish.js');
+require('./src/pets/_common.js');
+require('./src/pets/cat.js');
+require('./src/pets/dog.js');
+require('./src/pets/turtle.js');
+require('./src/pets/frog.js');
+require('./src/pets/bird.js');
 
 const Registry = globalThis.PetRegistry;
 const ids = Registry.ids();
@@ -52,6 +58,7 @@ const ctx = {
   lineTo: (x, y) => pt('lineTo', x, y),
   quadraticCurveTo: (a, b, c, d) => { num('quad', [a, b, c, d]); pt('quadEnd', c, d); },
   arc: (x, y, r, s, e) => { num('arc', [x, y, r, s, e]); if (r < 0) { bad++; console.error('负半径', r); } },
+  ellipse: (x, y, rx, ry, rot, s, e) => { num('ellipse', [x, y, rx, ry, rot, s, e]); if (rx < 0 || ry < 0) { bad++; console.error('负椭圆半径', rx, ry); } },
   fillRect: (...a) => num('fillRect', a),
   clearRect: noop,
   createLinearGradient: (...a) => { num('gradient', a); return grad; },

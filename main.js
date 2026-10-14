@@ -16,7 +16,13 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 const PetRegistry = require('./src/registry.js');
-require('./src/pets/fish.js');           // 注册 'fish'（后续动物在这里继续 require 注册）
+require('./src/pets/fish.js');           // 注册 'fish'
+require('./src/pets/_common.js');        // 陆地/飞行宠物共享工具
+require('./src/pets/cat.js');            // 注册 'cat'
+require('./src/pets/dog.js');            // 注册 'dog'
+require('./src/pets/turtle.js');         // 注册 'turtle'
+require('./src/pets/frog.js');           // 注册 'frog'
+require('./src/pets/bird.js');           // 注册 'bird'
 const PetPool = require('./src/petpool.js');
 const CFG = require('./src/config.js');
 

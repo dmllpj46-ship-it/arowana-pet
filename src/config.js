@@ -17,7 +17,7 @@
   var cfg = {
     ROTATE_MS: env.PET_ROTATE_MS ? parseInt(env.PET_ROTATE_MS, 10) : oneHour,
     TRANSITION_MS: 500,
-    POOL: ['fish'],
+    POOL: ['fish', 'cat', 'dog', 'turtle', 'frog', 'bird'],
     STATE_FILE: 'pet-state.json'
   };
 
