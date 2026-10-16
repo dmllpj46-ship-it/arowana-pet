@@ -11,7 +11,7 @@
  *
  * 物种定义来自 src/pets/*.js，经 PetRegistry 注册（require 顺序即注册顺序）。
  */
-const { app, BrowserWindow, screen, ipcMain, Tray, Menu, nativeImage, globalShortcut } = require('electron');
+const { app, BrowserWindow, screen, ipcMain, Tray, Menu, nativeImage, globalShortcut, powerMonitor } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 
@@ -32,11 +32,20 @@ const FOCUSABLE = false;
 const PROXIMITY_PAD = 26;   // 光标进入宠物包围圆外扩多少像素时恢复可交互
 const POLL_MS = 40;
 
+const HEARTBEAT_MS = 3000;    // 超过这么久没收到渲染心跳 = 渲染循环停摆（画面必消失）
+const WATCHDOG_MS = 2000;     // 看门狗检查间隔
+const REASSERT_MS = 30000;    // 周期性重申置顶（顺带唤醒被打断的渲染循环）
+
 let win = null;
 let tray = null;
 let boxes = [];           // 渲染进程报上来的宠物包围圆数组（窗口坐标）
 let interactive = false;
 let origin = { x: 0, y: 0 };
+
+// ---- 看门狗状态（见 startWatchdog）----
+let lastBeat = 0;         // 最近一次渲染心跳时间
+let stalls = 0;           // 连续判定停摆次数，够 3 次就整窗重建
+let rebuilding = false;   // 正在重建窗口：期间「无窗口」是预期状态，别让 window-all-closed 把 App 退掉
 
 // ---- Pet Pool 状态 ----
 let poolIds = [];         // 池内可用物种 id（CONFIG.POOL ∩ 已注册）
@@ -169,14 +178,58 @@ function createWindow() {
   });
 
   win.setIgnoreMouseEvents(true, { forward: true });
-  win.setAlwaysOnTop(true, 'screen-saver');
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   win.loadFile(path.join(__dirname, 'index.html'));
+  reassertTop();
   win.once('ready-to-show', () => {
     win.show();
+    rebuilding = false;   // 新窗已就绪，重建结束
+    reassertTop();
+  });
+  // pet:set-active 只在 ready-to-show 发一次是不够的：重建窗口 / 重载页面后
+  // 渲染进程要重新收到当前宠物，否则一直空着不画。
+  win.webContents.on('did-finish-load', () => {
+    lastBeat = Date.now();   // 给新页面一点启动宽限，别把启动当停摆
     if (currentId) win.webContents.send('pet:set-active', currentId);
   });
   win.on('closed', () => { win = null; });
+}
+
+// 重申置顶 + 请求重绘。实测「进程、托盘都在，画面却没了」这一步（等价于
+// SetWindowPos(HWND_TOPMOST)）能让渲染循环立刻恢复：renderer CPU 0% -> 20%+，
+// 宠物重新上屏。也用于周期性兜底未识别的停摆。
+function reassertTop() {
+  if (!win || win.isDestroyed()) return;
+  win.setAlwaysOnTop(true, 'screen-saver');
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  if (win.webContents && !win.webContents.isDestroyed()) win.webContents.invalidate();
+}
+
+// 兜底大招：合成层彻底坏了就整体重建窗口。比杀进程温和 —— 托盘、快捷键、
+// 轮换状态都还在，pet-state.json 也让当前宠物保持不变。
+function rebuildWindow() {
+  console.warn('[pet] 透明窗口重建以恢复上屏');
+  rebuilding = true;   // 关键：销毁旧窗到新窗就绪之间会有「零窗口」瞬间，
+                       // 不设这个标记，window-all-closed 会顺手 app.quit()，
+                       // 整只宠物（含托盘）就没了。
+  if (win && !win.isDestroyed()) win.destroy();
+  createWindow();
+  // 新窗口已同步建好；即便 ready-to-show 没能触发，也要有个兜底解除标记。
+  setTimeout(() => { rebuilding = false; }, 1500);
+}
+
+// 看门狗：渲染进程逐帧报心跳（preload.js 转发 'pet-frame'）。
+// 心跳断了 = 渲染循环停摆（画面必然消失）：先温和唤醒，连续 3 次就重建窗口。
+function startWatchdog() {
+  lastBeat = Date.now();
+  setInterval(reassertTop, REASSERT_MS);
+  setInterval(() => {
+    if (!win || win.isDestroyed()) return;
+    if (Date.now() - lastBeat <= HEARTBEAT_MS) { stalls = 0; return; }
+    stalls++;
+    console.warn('[pet] 渲染循环无心跳 ' + stalls + ' 次，尝试唤醒');
+    reassertTop();
+    if (stalls >= 3) { stalls = 0; rebuildWindow(); }
+  }, WATCHDOG_MS);
 }
 
 // 没有任何原生依赖的鼠标 proximity：轮询系统光标坐标即可。
@@ -251,6 +304,7 @@ function refreshTray() {
       enabled: !CFG.PET_PIN,
       click: () => { rotateTo(pickNext()); scheduleRotation(CFG.ROTATE_MS); }
     },
+    { label: '修复显示', click: () => reassertTop() },
     { type: 'separator' },
     { label: '退出', click: () => app.quit() }
   ]));
@@ -268,6 +322,12 @@ function buildTray(dataUrl) {
 app.disableHardwareAcceleration();
 app.commandLine.appendSwitch('disable-gpu');
 app.commandLine.appendSwitch('disable-gpu-compositing');
+// 透明置顶窗在休眠/唤醒后偶发「渲染循环整段停摆」：Chromium 收回 BeginFrame，
+// rAF 不再回调，画面彻底消失（进程、托盘都还在，只有画面没了）。这几条禁掉
+// 渲染进程的后台化 / 遮挡判定，从源头降低概率；停摆仍有看门狗兜底。
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -277,10 +337,17 @@ if (!gotLock) {
     initPool();
     createWindow();
     startProximityPolling();
+    startWatchdog();
     globalShortcut.register('Control+Alt+Q', () => app.quit());
     screen.on('display-metrics-changed', fitWindow);
     screen.on('display-added', fitWindow);
     screen.on('display-removed', fitWindow);
+    // 休眠/待机唤醒是已知诱因：唤醒后合成器可能不再出帧，宠物就此「消失」。
+    // 醒来先重申一次置顶，1 秒后再补一次（首次可能太早，窗口还没就绪）。
+    ['resume', 'unlock-screen', 'user-did-become-active'].forEach((ev) => {
+      powerMonitor.on(ev, () => { reassertTop(); setTimeout(reassertTop, 1000); });
+    });
+    screen.on('display-metrics-changed', reassertTop);
   });
 
   ipcMain.on('pet-box', (_e, b) => {
@@ -288,6 +355,8 @@ if (!gotLock) {
     else if (b && Array.isArray(b.boxes)) boxes = b.boxes;
     else if (b && isFinite(b.x)) boxes = [b];
   });
+  // 渲染循环心跳：看门狗据此判断画面是否还在动
+  ipcMain.on('pet-frame', () => { lastBeat = Date.now(); });
   ipcMain.on('set-tray', (_e, url) => { try { buildTray(url); } catch (err) { /* 图标失败不影响主功能 */ } });
   ipcMain.on('quit', () => app.quit());
   ipcMain.on('swap-pet', () => {
@@ -295,7 +364,9 @@ if (!gotLock) {
     scheduleRotation(CFG.ROTATE_MS);
   });
 
-  app.on('window-all-closed', () => app.quit());
+  // 只有用户真的关掉（托盘「退出」/ Ctrl+Alt+Q）才退 App；
+  // 看门狗重建窗口时的瞬时零窗口不能算数。
+  app.on('window-all-closed', () => { if (!rebuilding) app.quit(); });
   app.on('will-quit', () => {
     if (rotateTimer) clearTimeout(rotateTimer);
     globalShortcut.unregisterAll();

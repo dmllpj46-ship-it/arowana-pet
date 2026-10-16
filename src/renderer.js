@@ -17,7 +17,7 @@
 
   var api = window.pet || {
     sendBox: function () {}, setTray: function () {}, quit: function () {},
-    setActive: null
+    heartbeat: function () {}, setActive: null
   };
   var cvs = document.getElementById('c');
   var ctx = cvs.getContext('2d');
@@ -98,43 +98,65 @@
   }
 
   function frame(now) {
+    // 先把下一帧排上：任何一帧里抛异常都不该让渲染循环永久停掉。
+    // （原来 requestAnimationFrame 排在函数末尾，draw 里一次异常 =
+    //  循环就此断掉，宠物从此再也画不出来）
+    requestAnimationFrame(frame);
+
     var dt = Math.min((now - (frame.last || now)) / 1000, 0.05);
     frame.last = now;
 
-    // 淡入淡出管理
-    if (active) {
-      if (active.dying) {
-        active.alpha -= dt * 1000 / FADE_MS;
-        if (active.alpha <= 0) {
-          active = pendingSpawn ? spawn(pendingSpawn) : null;
-          pendingSpawn = null;
+    // 心跳：约 4 次/秒。主进程看门狗靠它判断渲染循环是死是活，
+    // 停摆就重申置顶 / 重绘，必要时重建窗口（休眠唤醒后的老毛病）。
+    if (!frame.beatAt || now - frame.beatAt > 250) {
+      frame.beatAt = now;
+      try { api.heartbeat(); } catch (err) { /* 预览模式没有主进程 */ }
+    }
+
+    try {
+      // 淡入淡出管理
+      if (active) {
+        if (active.dying) {
+          active.alpha -= dt * 1000 / FADE_MS;
+          if (active.alpha <= 0) {
+            active = pendingSpawn ? spawn(pendingSpawn) : null;
+            pendingSpawn = null;
+          }
+        } else if (active.alpha < 1) {
+          active.alpha = Math.min(1, active.alpha + dt * 1000 / FADE_MS);
         }
-      } else if (active.alpha < 1) {
-        active.alpha = Math.min(1, active.alpha + dt * 1000 / FADE_MS);
       }
-    }
 
-    if (active && !active.dying) {
-      Brain.update(active.st, dt, W, H);
-      if (active.def.profile.particles !== 'none') {
-        Bubbles.update(active.bs, dt, active.st, active.def.L);
+      if (active && !active.dying) {
+        Brain.update(active.st, dt, W, H);
+        if (active.def.profile.particles !== 'none') {
+          Bubbles.update(active.bs, dt, active.st, active.def.L);
+        }
       }
-    }
 
-    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    ctx.clearRect(0, 0, W, H);
-    if (active) {
-      ctx.globalAlpha = Math.max(0, Math.min(1, active.alpha));
-      if (!active.dying && active.def.profile.particles !== 'none') {
-        Bubbles.draw(ctx, active.bs);
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      ctx.clearRect(0, 0, W, H);
+      if (active) {
+        ctx.globalAlpha = Math.max(0, Math.min(1, active.alpha));
+        if (!active.dying && active.def.profile.particles !== 'none') {
+          Bubbles.draw(ctx, active.bs);
+        }
+        active.def.draw(ctx, active.st);
+        ctx.globalAlpha = 1;
       }
-      active.def.draw(ctx, active.st);
+
+      boxT += dt;
+      if (boxT > 0.2) { boxT = 0; sendBoxes(); }
+    } catch (err) {
+      // 坏帧会每帧抛，限流输出，别把控制台刷爆。
+      // 同时把 ctx 状态复位：残留的半透明 / 变换会让画面看着像「宠物消失」。
       ctx.globalAlpha = 1;
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      if (!frame.errAt || now - frame.errAt > 2000) {
+        frame.errAt = now;
+        console.error('[pet] 绘制异常：', err);
+      }
     }
-
-    boxT += dt;
-    if (boxT > 0.2) { boxT = 0; sendBoxes(); }
-    requestAnimationFrame(frame);
   }
 
   function init() {
